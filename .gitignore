@@ -1,0 +1,38 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+Cargo.lock
+
+# Executables & Binaries
+*.exe
+*.dll
+*.sys
+*.obj
+*.pdb
+
+# Proprietary Extracted Assets & Decompiled Binaries
+extracted/
+assets/
+extracted_assets/
+
+# Packet Captures
+*.pcap
+*.pcapng
+
+# Profile backups & temporary debug dumps
+*.bin.bak
+debug_read.bin
+dumped_after_write.bin
+test_read.bin
+report_desc_if1.bin
+verified_mouse.bin
+
+# Operating System & Editor Files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
