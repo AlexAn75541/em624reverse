@@ -313,18 +313,22 @@ impl MouseProfile {
         self.recalculate_checksums();
     }
 
-    /// Keep profile's own native button bindings, ensure Stage 6 mask is safe (0xDF),
-    /// clear hardware lockout flags, and recalculate checksums.
+    /// Keep profile's own native button bindings and mode untouched, ensure Stage 6 mask is safe (bit 5 masked to 0),
+    /// clamp any out-of-bounds DPI nibbles, clear hardware lockout flag (bit 7 of 0x03F9), and recalculate all 5 checksums.
     pub fn apply_safe_profile(&mut self) {
         if self.raw.len() != PROFILE_SIZE {
             return;
         }
-        self.raw[4] = 0xdf;      // safe 5 active DPI stages
-        self.clamp_dpi_nibbles(); // Clamp DPI steps <= 12 to prevent sensor lookup overflow
-        self.raw[0x00a4] = 0x01; // Force Gaming Mode
-        self.raw[0x00a8] = 0x0f;
-        self.raw[0x00aa] = 0x18;
-        self.raw[0x03f9] = 0x04; // Clear 0x80 button lockout flag
+        // 1. Mask out stage 6 trap: byte 4 &= 0xDF
+        self.raw[4] &= 0xdf;
+
+        // 2. Clamp any out-of-bounds DPI nibbles (> 12 / 8000 DPI) to 12
+        self.clamp_dpi_nibbles();
+
+        // 3. Clear hardware button lockout bit (bit 7 of 0x03F9)
+        self.raw[0x03f9] &= 0x7f;
+
+        // 4. Recalculate all 5 hardware checksums
         self.recalculate_checksums();
     }
 

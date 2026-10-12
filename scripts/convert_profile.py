@@ -52,16 +52,13 @@ def convert_profile_bytes(raw_bytes: bytes, button_mode: str = "standard") -> by
 
     buf = bytearray(raw_bytes)
 
-    # 1. Hardware safety registers (fix Stage 6 lockup, force Gaming Mode, clear 0x80 lockout flag)
-    buf[4] = 0xDF       # Safe 5 active DPI stages
-    buf[0x00A4] = 0x01  # Force Gaming Mode (active button routing)
-    buf[0x00A8] = 0x0F  # Active button mask
-    buf[0x00AA] = 0x18  # Feature report enable
-    buf[0x03F9] = 0x04  # Clear 0x80 hardware button lockout flag
+    # 1. Hardware safety registers (fix Stage 6 lockup, clear 0x80 lockout flag)
+    buf[4] &= 0xDF       # Safe active DPI stages (mask bit 5)
+    buf[0x03F9] &= 0x7F  # Clear 0x80 hardware button lockout flag
 
-    # 1b. Clamp all 6 DPI stage nibbles to max 12 (0x0C = 5200 DPI)
-    # Sensor calibration lookup table overflows on nibble > 12 (e.g. 14 = 7200 DPI),
-    # causing the SPCP6651B MCU button interrupt dispatch loop to trap.
+    # 1b. Clamp all 6 DPI stage nibbles to max 12 (8000 DPI)
+    # Sensor calibration lookup table overflows on nibble > 12 (e.g. 14 = 10000+ DPI),
+    # causing the SPCP6662 MCU button interrupt dispatch loop to trap.
     for off in range(0x2C, 0x2F):
         low = min(buf[off] & 0x0F, 12)
         high = min((buf[off] >> 4) & 0x0F, 12)
@@ -69,10 +66,13 @@ def convert_profile_bytes(raw_bytes: bytes, button_mode: str = "standard") -> by
 
     # 2. Button handling
     if button_mode == "standard":
+        buf[0x00A4] = 0x01 # Force Gaming Mode
+        buf[0x00A8] = 0x0F
+        buf[0x00AA] = 0x18
         buf[0x00C0:0x00F0] = STANDARD_BUTTON_TABLE # Office Mode table
         buf[0x00F1:0x0121] = STANDARD_BUTTON_TABLE # Gaming Mode table
     elif button_mode == "keep":
-        pass # Preserve profile's own bindings
+        pass # Preserve profile's own bindings and mode flags 100% untouched
     else:
         raise ValueError(f"Unknown button mode: {button_mode}")
 
