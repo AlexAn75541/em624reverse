@@ -8,16 +8,17 @@ on:
 
 jobs:
   build:
-    name: Build & Package (${{ matrix.os }})
+    name: Build & Package (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
         include:
           - os: ubuntu-latest
+            platform: linux
             target: x86_64-unknown-linux-gnu
           - os: windows-latest
+            platform: windows
             target: x86_64-pc-windows-msvc
 
     steps:
@@ -25,7 +26,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install system dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libudev-dev pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev libasound2-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev zip
@@ -60,7 +61,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package Windows (.zip)
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path dist/em624-windows-x64 | Out-Null
@@ -70,8 +71,8 @@ jobs:
           Compress-Archive -Path dist/em624-windows-x64 -DestinationPath em624-windows-x64.zip -Force
           Get-Item em624-windows-x64.zip
 
-      - name: Package Linux (.zip & .tar.gz)
-        if: matrix.os == 'ubuntu-latest'
+      - name: Package Linux (.zip)
+        if: matrix.platform == 'linux'
         run: |
           mkdir -p dist/em624-linux-x64
           cp target/${{ matrix.target }}/release/em624 dist/em624-linux-x64/
@@ -80,25 +81,22 @@ jobs:
           chmod +x dist/em624-linux-x64/em624
           cd dist
           zip -r ../em624-linux-x64.zip em624-linux-x64
-          tar -czvf ../em624-linux-x64.tar.gz em624-linux-x64
           cd ..
-          ls -lh em624-linux-x64.*
+          ls -lh em624-linux-x64.zip
 
       - name: Upload Windows Package
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'windows'
         uses: actions/upload-artifact@v4
         with:
           name: package-windows
           path: em624-windows-x64.zip
 
-      - name: Upload Linux Packages
-        if: matrix.os == 'ubuntu-latest'
+      - name: Upload Linux Package
+        if: matrix.platform == 'linux'
         uses: actions/upload-artifact@v4
         with:
           name: package-linux
-          path: |
-            em624-linux-x64.zip
-            em624-linux-x64.tar.gz
+          path: em624-linux-x64.zip
 
   prerelease:
     name: Publish Pre-Release
@@ -117,7 +115,7 @@ jobs:
           name: package-windows
           path: packages
 
-      - name: Download Linux Packages
+      - name: Download Linux Package
         uses: actions/download-artifact@v4
         with:
           name: package-linux
@@ -134,13 +132,12 @@ jobs:
           gh release create "pre-release" \
             packages/em624-windows-x64.zip \
             packages/em624-linux-x64.zip \
-            packages/em624-linux-x64.tar.gz \
-            --title "E-DRA EM624 Mouse Configurator (Automated Pre-Release)" \
+            --title "E-DRA EM624 Mouse Configurator (Pre-Release)" \
             --notes "Automated continuous build of the **E-DRA EM624 Mouse Configurator**.
 
           ### 📦 Complete Packages Included:
-          - **Windows**: \`em624-windows-x64.zip\` (Contains standalone GUI \`em624.exe\` + \`exampleProfiles/\` + documentation)
-          - **Linux**: \`em624-linux-x64.zip\` and \`em624-linux-x64.tar.gz\` (Contains native binary + \`exampleProfiles/\` + \`LINUX.md\` setup guide)
+          - **Windows (x64)**: \`em624-windows-x64.zip\` (Contains standalone GUI \`em624.exe\` + \`exampleProfiles/\` + documentation)
+          - **Linux (x64)**: \`em624-linux-x64.zip\` (Contains standalone GUI/CLI binary \`em624\` + \`exampleProfiles/\` + \`LINUX.md\` setup guide)
 
           ### 🚀 Features:
           - **100% Native Offline Rust UI** (eframe/egui): zero HTML, zero webview, zero network activity.
@@ -153,5 +150,4 @@ jobs:
           gh release upload "pre-release" \
             packages/em624-windows-x64.zip \
             packages/em624-linux-x64.zip \
-            packages/em624-linux-x64.tar.gz \
             --clobber
