@@ -27,15 +27,15 @@ enum Commands {
         /// Path to the .bin profile file
         path: PathBuf,
     },
-    /// Flash a 2048-byte configuration profile to the mouse
+    /// Flash a 2048-byte configuration profile (.em624 or .bin) to the mouse
     ApplyProfile {
-        /// Path to the .bin profile file
+        /// Path to the .em624 or .bin profile file
         path: PathBuf,
         /// Button mapping mode:
-        /// 'standard' (default): 100% standard mouse actions (Left, Right, Middle, Forward, Back, CPI Loop)
-        /// 'keep': Preserve profile's own button mappings (e.g. Spacebar/Q for Valorant) with safe stage 6 mask
+        /// 'keep' (default): Preserves profile's own button mappings (e.g. Win+D, Shift+Win+S, hotkeys) with safe stage 6 mask
+        /// 'standard': Enforces standard browser actions (Left, Right, Middle, Forward, Backward, CPI Loop)
         /// 'daily': Clone DailyUse baseline
-        #[arg(long, default_value = "standard")]
+        #[arg(long, default_value = "keep")]
         buttons: String,
         #[arg(long)]
         vid: Option<u16>,
@@ -267,18 +267,16 @@ fn main() -> Result<()> {
             }
 
             let target_path = output.unwrap_or_else(|| {
-                let mut bak = input.clone();
-                bak.set_extension("bin.bak");
-                let _ = fs::copy(&input, &bak);
-                println!("  Backed up original to {}", bak.display());
-                input.clone()
+                let mut em624 = input.clone();
+                em624.set_extension("em624");
+                em624
             });
 
             profile.save_file(&target_path)?;
             println!("Successfully converted and saved profile to: {}", target_path.display());
         }
         Commands::ConvertAll { dir, buttons } => {
-            println!("Scanning directory for profiles: {}", dir.display());
+            println!("Scanning directory for .bin profiles: {}", dir.display());
             let mut converted_count = 0;
             let mut scanned_count = 0;
 
@@ -288,22 +286,20 @@ fn main() -> Result<()> {
                 if path.extension().and_then(|s| s.to_str()) == Some("bin") {
                     scanned_count += 1;
                     if let Ok(mut profile) = MouseProfile::load_file(&path) {
-                        let mut bak = path.clone();
-                        bak.set_extension("bin.bak");
-                        let _ = fs::copy(&path, &bak);
-
                         match buttons.to_lowercase().as_str() {
-                            "keep" => profile.apply_safe_profile(),
-                            _ => profile.apply_standard_buttons(),
+                            "standard" => profile.apply_standard_buttons(),
+                            _ => profile.apply_safe_profile(),
                         }
 
-                        profile.save_file(&path)?;
-                        println!("  [CONVERTED] {} (backed up to .bak)", path.file_name().unwrap_or_default().to_string_lossy());
+                        let mut out_path = path.clone();
+                        out_path.set_extension("em624");
+                        profile.save_file(&out_path)?;
+                        println!("  [CONVERTED] {} -> {}", path.file_name().unwrap_or_default().to_string_lossy(), out_path.file_name().unwrap_or_default().to_string_lossy());
                         converted_count += 1;
                     }
                 }
             }
-            println!("\nConversion finished: {} scanned, {} converted.", scanned_count, converted_count);
+            println!("\nConversion finished: {} scanned, {} converted to .em624.", scanned_count, converted_count);
         }
     }
 

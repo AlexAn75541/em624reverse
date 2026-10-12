@@ -39,21 +39,21 @@ cargo clean; cargo build
 
 ### 2. Load Profile 1 (Daily Use / Productivity)
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\DailyUse.bin
+.\target\debug\em624.exe apply-profile profiles\DailyUse.em624
 ```
-*Applies 1200 / 2000 / 2800 / 3600 / 4400 DPI stages, RGB lighting, and standard mouse buttons with functional Forward & Backward side buttons.*
+*Applies 1200 / 2000 / 2800 / 3600 / 4400 DPI stages, RGB lighting, and verified buttons with functional Forward & Backward side buttons.*
 
 ### 3. Load Profile 2 (Gaming / Valorant + CS2 / WarThunder)
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin
+.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.em624
 ```
-*Applies tailored competitive DPI stages and colors without freezing mouse buttons.*
+*Applies tailored competitive DPI stages, colors, and game shortcuts without freezing mouse buttons.*
 
 ### 4. Verify Active State via Hardware Probe
 ```powershell
 .\target\debug\em624.exe probe
 ```
-*Reads active configuration directly from the mouse memory to confirm successful application.*
+*Reads active configuration directly from mouse memory to confirm successful application.*
 
 ---
 
@@ -66,25 +66,25 @@ cargo build
 
 ### 2. Inspect a Profile
 ```powershell
-.\target\debug\em624.exe inspect-profile profiles\DailyUse.bin
+.\target\debug\em624.exe inspect-profile profiles\DailyUse.em624
 ```
 
 ### 3. Apply a Profile to the Mouse
 
-#### A. Standard Gaming Setup (Recommended: Left, Right, Middle, Forward, Back, CPI Loop)
+#### A. Load Gaming Profile (.em624 format)
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin
+.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.em624
 ```
-*(By default, `--buttons standard` is active: preserves your custom DPI stages and RGB LED colors while restoring authentic Browser Forward and Backward side buttons!)*
+*(By default, `--buttons keep` preserves your authentic game shortcuts like Win+D and Shift+Win+S while enforcing safe stage-6 clamping and verified checksums!)*
 
-#### B. Preserve Profile's Custom Game Bindings (e.g. Spacebar & Q in Valorant)
+#### B. Force Standard Browser Actions (Left, Right, Middle, Forward, Back, CPI Loop)
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin --buttons keep
+.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.em624 --buttons standard
 ```
 
 #### C. Restore Daily Use Bindings
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\DailyUse.bin --buttons keep
+.\target\debug\em624.exe apply-profile profiles\DailyUse.em624
 ```
 
 ### 4. Live Hardware Diagnostic (Probe Mouse State)
@@ -93,13 +93,13 @@ cargo build
 ```
 *Queries the mouse directly over USB HID and prints a live diagnostic report of active DPI levels, RGB LED colors, active profile mode, button mappings, and hardware safety registers.*
 
-### 5. Convert Profiles from Stock App
+### 5. Convert Profiles from Stock App (.bin -> .em624)
 ```powershell
-# Convert single profile:
-.\target\debug\em624.exe convert-profile profiles\WarThunder.bin --buttons standard
+# Convert single stock .bin export to modern safe .em624:
+.\target\debug\em624.exe convert-profile profiles\WarThunder.bin -o profiles\WarThunder.em624
 
-# Convert all profiles in a directory:
-.\target\debug\em624.exe convert-all profiles --buttons standard
+# Batch-convert all stock .bin profiles in a directory:
+.\target\debug\em624.exe convert-all profiles --buttons keep
 ```
 
 ### 6. Read Active Profile from Mouse Memory
