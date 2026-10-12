@@ -118,7 +118,11 @@ fn main() -> Result<()> {
                 let path = dev.path().to_string_lossy();
 
                 let is_match = vid == device::DEFAULT_VID && pid == device::DEFAULT_PID;
-                let tag = if is_match { " [★ EM624 MATCH ★]" } else { "" };
+                let tag = if is_match {
+                    " [★ EM624 MATCH ★]"
+                } else {
+                    ""
+                };
 
                 println!(
                     "VID: 0x{:04x} | PID: 0x{:04x} | IF: {:2} | Page: 0x{:04x} | Usage: 0x{:04x} | {}: {} | Path: {}{}",
@@ -133,8 +137,16 @@ fn main() -> Result<()> {
             let profile = MouseProfile::load_file(&path)?;
 
             println!("Device Name: {}", profile.device_name);
-            println!("Active Stages Mask: 0x{:02x} ({:06b})", profile.active_stages_mask, profile.active_stages_mask & 0x3f);
-            let mode_str = if profile.is_gaming_mode { "Gaming Mode" } else { "Office Mode" };
+            println!(
+                "Active Stages Mask: 0x{:02x} ({:06b})",
+                profile.active_stages_mask,
+                profile.active_stages_mask & 0x3f
+            );
+            let mode_str = if profile.is_gaming_mode {
+                "Gaming Mode"
+            } else {
+                "Office Mode"
+            };
             println!("Active Profile Mode: {}", mode_str);
 
             println!("\nOffice Mode Buttons (0x00C0):");
@@ -166,10 +178,18 @@ fn main() -> Result<()> {
                 );
             }
         }
-        Some(Commands::ApplyProfile { path, buttons, vid, pid }) => {
+        Some(Commands::ApplyProfile {
+            path,
+            buttons,
+            vid,
+            pid,
+        }) => {
             println!("Reading profile file: {}", path.display());
             let mut profile = MouseProfile::load_file(&path)?;
-            println!("Loaded profile '{}' (Active mask: 0x{:02x})", profile.device_name, profile.active_stages_mask);
+            println!(
+                "Loaded profile '{}' (Active mask: 0x{:02x})",
+                profile.device_name, profile.active_stages_mask
+            );
 
             match buttons.to_lowercase().as_str() {
                 "standard" => {
@@ -185,7 +205,10 @@ fn main() -> Result<()> {
                     profile.apply_og_compat();
                 }
                 other => {
-                    eprintln!("Unknown button mode '{}', falling back to 'standard'", other);
+                    eprintln!(
+                        "Unknown button mode '{}', falling back to 'standard'",
+                        other
+                    );
                     profile.apply_standard_buttons();
                 }
             }
@@ -196,7 +219,10 @@ fn main() -> Result<()> {
                 _ => Em624Device::open_auto(&api)?,
             };
 
-            println!("Connected to EM624 Mouse (VID: 0x{:04x}, PID: 0x{:04x})", dev.vid, dev.pid);
+            println!(
+                "Connected to EM624 Mouse (VID: 0x{:04x}, PID: 0x{:04x})",
+                dev.vid, dev.pid
+            );
             println!("Flashing profile to mouse memory (293 chunks)...");
             dev.write_profile(&profile.raw)?;
             println!("Successfully applied profile to mouse!");
@@ -208,7 +234,10 @@ fn main() -> Result<()> {
                 _ => Em624Device::open_auto(&api)?,
             };
 
-            println!("Connected to EM624 Mouse (VID: 0x{:04x}, PID: 0x{:04x})", dev.vid, dev.pid);
+            println!(
+                "Connected to EM624 Mouse (VID: 0x{:04x}, PID: 0x{:04x})",
+                dev.vid, dev.pid
+            );
             println!("Dumping active profile from mouse flash...");
             let data = dev.read_profile()?;
             fs::write(&dest, &data)?;
@@ -234,8 +263,19 @@ fn main() -> Result<()> {
 
             println!("\n=== EM624 LIVE HARDWARE PROBE REPORT ===");
             println!("Device Name String : {}", profile.device_name);
-            println!("Active Profile Mode: {}", if profile.is_gaming_mode { "Gaming Mode" } else { "Office Mode" });
-            println!("Active Stages Mask : 0x{:02x} ({:06b})", profile.active_stages_mask, profile.active_stages_mask & 0x3f);
+            println!(
+                "Active Profile Mode: {}",
+                if profile.is_gaming_mode {
+                    "Gaming Mode"
+                } else {
+                    "Office Mode"
+                }
+            );
+            println!(
+                "Active Stages Mask : 0x{:02x} ({:06b})",
+                profile.active_stages_mask,
+                profile.active_stages_mask & 0x3f
+            );
 
             // Hardware register safety audit
             let reg_mode = data[0x00a4];
@@ -243,22 +283,61 @@ fn main() -> Result<()> {
             let stage6_active = (profile.active_stages_mask & (1 << 5)) != 0;
 
             println!("\n--- Hardware Register Audit ---");
-            println!("  Mode Register (0x00A4)   : 0x{:02x} -> {}", reg_mode, if reg_mode == 1 { "Gaming [OK]" } else { "Office" });
-            println!("  Lockout Flag  (0x03F9)   : 0x{:02x} -> {}", reg_lockout, if (reg_lockout & 0x80) == 0 { "Buttons ACTIVE [OK]" } else { "⚠️ BUTTON INTERRUPT LOCKED (0x80 bit set!)" });
-            println!("  Stage 6 Status           : {}", if !stage6_active { "Disabled [SAFE]" } else { "⚠️ ENABLED (May trigger MCU sensor hang!)" });
+            println!(
+                "  Mode Register (0x00A4)   : 0x{:02x} -> {}",
+                reg_mode,
+                if reg_mode == 1 {
+                    "Gaming [OK]"
+                } else {
+                    "Office"
+                }
+            );
+            println!(
+                "  Lockout Flag  (0x03F9)   : 0x{:02x} -> {}",
+                reg_lockout,
+                if (reg_lockout & 0x80) == 0 {
+                    "Buttons ACTIVE [OK]"
+                } else {
+                    "⚠️ BUTTON INTERRUPT LOCKED (0x80 bit set!)"
+                }
+            );
+            println!(
+                "  Stage 6 Status           : {}",
+                if !stage6_active {
+                    "Disabled [SAFE]"
+                } else {
+                    "⚠️ ENABLED (May trigger MCU sensor hang!)"
+                }
+            );
 
             println!("\n--- Active DPI Stages & RGB LEDs ---");
             for (idx, stage) in profile.dpi_stages.iter().enumerate() {
                 let status = if stage.enabled { "ACTIVE" } else { "disabled" };
                 println!(
                     "  Stage {}: ~{:4} DPI (Level {:2}) | RGB=({:3}, {:3}, {:3}) | [{}]",
-                    idx + 1, stage.approx_dpi, stage.level_index,
-                    stage.color.r, stage.color.g, stage.color.b, status
+                    idx + 1,
+                    stage.approx_dpi,
+                    stage.level_index,
+                    stage.color.r,
+                    stage.color.g,
+                    stage.color.b,
+                    status
                 );
             }
 
-            println!("\n--- Current Button Mapping ({}) ---", if profile.is_gaming_mode { "Gaming Mode" } else { "Office Mode" });
-            let active_buttons = if profile.is_gaming_mode { &profile.gaming_buttons } else { &profile.office_buttons };
+            println!(
+                "\n--- Current Button Mapping ({}) ---",
+                if profile.is_gaming_mode {
+                    "Gaming Mode"
+                } else {
+                    "Office Mode"
+                }
+            );
+            let active_buttons = if profile.is_gaming_mode {
+                &profile.gaming_buttons
+            } else {
+                &profile.office_buttons
+            };
             for btn in active_buttons {
                 if btn.description != "None" && !btn.physical_button.contains("Unused") {
                     println!("  {:28} -> {}", btn.physical_button, btn.description);
@@ -266,7 +345,11 @@ fn main() -> Result<()> {
             }
             println!("========================================\n");
         }
-        Some(Commands::ConvertProfile { input, output, buttons }) => {
+        Some(Commands::ConvertProfile {
+            input,
+            output,
+            buttons,
+        }) => {
             println!("Loading profile: {}", input.display());
             let mut profile = MouseProfile::load_file(&input)?;
 
@@ -291,7 +374,10 @@ fn main() -> Result<()> {
             });
 
             profile.save_file(&target_path)?;
-            println!("Successfully converted and saved profile to: {}", target_path.display());
+            println!(
+                "Successfully converted and saved profile to: {}",
+                target_path.display()
+            );
         }
         Some(Commands::ConvertAll { dir, buttons }) => {
             println!("Scanning directory for .bin profiles: {}", dir.display());
@@ -312,12 +398,19 @@ fn main() -> Result<()> {
                         let mut out_path = path.clone();
                         out_path.set_extension("em624");
                         profile.save_file(&out_path)?;
-                        println!("  [CONVERTED] {} -> {}", path.file_name().unwrap_or_default().to_string_lossy(), out_path.file_name().unwrap_or_default().to_string_lossy());
+                        println!(
+                            "  [CONVERTED] {} -> {}",
+                            path.file_name().unwrap_or_default().to_string_lossy(),
+                            out_path.file_name().unwrap_or_default().to_string_lossy()
+                        );
                         converted_count += 1;
                     }
                 }
             }
-            println!("\nConversion finished: {} scanned, {} converted to .em624.", scanned_count, converted_count);
+            println!(
+                "\nConversion finished: {} scanned, {} converted to .em624.",
+                scanned_count, converted_count
+            );
         }
     }
 

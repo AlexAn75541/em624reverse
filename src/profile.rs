@@ -49,9 +49,7 @@ pub const VERIFIED_BUTTON_BLOCK: [u8; 136] = [
 
 /// Verified 8-byte sector footer (offsets 0x03F8..0x0400)
 #[allow(dead_code)]
-pub const VERIFIED_FOOTER: [u8; 8] = [
-    0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x51,
-];
+pub const VERIFIED_FOOTER: [u8; 8] = [0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x51];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RgbColor {
@@ -133,10 +131,18 @@ impl MouseProfile {
 
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != PROFILE_SIZE {
-            bail!("Invalid profile length: {} bytes (expected {})", bytes.len(), PROFILE_SIZE);
+            bail!(
+                "Invalid profile length: {} bytes (expected {})",
+                bytes.len(),
+                PROFILE_SIZE
+            );
         }
         if bytes[0..4] != PROFILE_MAGIC {
-            bail!("Invalid profile magic: {:02x?} (expected {:02x?})", &bytes[0..4], PROFILE_MAGIC);
+            bail!(
+                "Invalid profile magic: {:02x?} (expected {:02x?})",
+                &bytes[0..4],
+                PROFILE_MAGIC
+            );
         }
 
         let raw = bytes.to_vec();
@@ -145,8 +151,13 @@ impl MouseProfile {
 
         // Device name string around offset 111 (0x6F)
         let name_bytes = &raw[111..130];
-        let null_pos = name_bytes.iter().position(|&c| c == 0).unwrap_or(name_bytes.len());
-        let device_name = String::from_utf8_lossy(&name_bytes[..null_pos]).trim().to_string();
+        let null_pos = name_bytes
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(name_bytes.len());
+        let device_name = String::from_utf8_lossy(&name_bytes[..null_pos])
+            .trim()
+            .to_string();
 
         // Parse 6 DPI stages from nibbles at offsets 44, 45, 46
         let n0 = raw[44] & 0x0f;
@@ -168,7 +179,11 @@ impl MouseProfile {
                     b: raw[color_offset + 2],
                 }
             } else {
-                RgbColor { r: 255, g: 255, b: 255 }
+                RgbColor {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                }
             };
 
             let enabled = (active_stages_mask & (1 << i)) != 0;
@@ -228,7 +243,8 @@ impl MouseProfile {
             8 => "Button 7: DPI -",
             9 => "Button 6: DPI +",
             _ => "Unused Slot",
-        }.to_string();
+        }
+        .to_string();
         let desc = match key_type {
             0x01 => match p1 {
                 0x01 => "Left Click".to_string(),
@@ -339,7 +355,7 @@ impl MouseProfile {
         self.raw[0x00f1..0x0121].copy_from_slice(&STANDARD_BUTTON_TABLE);
 
         // Hardware safety registers
-        self.raw[4] = 0xdf;      // 5 active DPI stages, mask stage 6 MCU lockup
+        self.raw[4] = 0xdf; // 5 active DPI stages, mask stage 6 MCU lockup
         self.clamp_dpi_nibbles(); // Clamp DPI steps <= 12 to prevent sensor lookup overflow
         self.raw[0x00a4] = 0x01; // Force Gaming Mode (active button matrix)
         self.raw[0x00a8] = 0x0f; // Active button mask
@@ -375,8 +391,8 @@ impl MouseProfile {
             return false;
         }
         // Check if button block matches the verified functional template
-        &self.raw[0xa0..0x128] == &VERIFIED_BUTTON_BLOCK[..]
-            && &self.raw[0x3f8..0x400] == &VERIFIED_FOOTER[..]
+        self.raw[0xa0..0x128] == VERIFIED_BUTTON_BLOCK[..]
+            && self.raw[0x3f8..0x400] == VERIFIED_FOOTER[..]
     }
 
     /// Apply full compatibility transform matching the original Delphi application:
@@ -474,7 +490,15 @@ mod tests {
 
         // Ensure high nibble was clamped to <= 12
         let high_nibble = (profile.raw[0x2e] >> 4) & 0x0f;
-        assert!(high_nibble <= 12, "Nibble should be clamped <= 12, got {}", high_nibble);
-        assert_eq!(profile.raw[4] & (1 << 5), 0, "Stage 6 bit should be masked to 0");
+        assert!(
+            high_nibble <= 12,
+            "Nibble should be clamped <= 12, got {}",
+            high_nibble
+        );
+        assert_eq!(
+            profile.raw[4] & (1 << 5),
+            0,
+            "Stage 6 bit should be masked to 0"
+        );
     }
 }

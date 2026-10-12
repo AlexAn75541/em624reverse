@@ -26,7 +26,8 @@ pub struct Em624Device {
 impl Em624Device {
     pub fn open_auto(api: &HidApi) -> Result<Self> {
         let matching = Self::find_candidate(api)?;
-        let device = matching.open_device(api)
+        let device = matching
+            .open_device(api)
             .context("Failed to open HID device handle (check permissions or Win32 access)")?;
 
         println!(
@@ -53,9 +54,7 @@ impl Em624Device {
                     target_info = Some(dev);
                     break;
                 }
-                if dev.interface_number() == 1 && target_info.is_none() {
-                    target_info = Some(dev);
-                } else if target_info.is_none() {
+                if dev.interface_number() == 1 || target_info.is_none() {
                     target_info = Some(dev);
                 }
             }
@@ -88,9 +87,7 @@ impl Em624Device {
                 if dev.usage_page() == 0xff00 || path.contains("&col04") {
                     return Ok(dev);
                 }
-                if dev.interface_number() == 1 && fallback.is_none() {
-                    fallback = Some(dev);
-                } else if fallback.is_none() {
+                if dev.interface_number() == 1 || fallback.is_none() {
                     fallback = Some(dev);
                 }
             }
@@ -104,13 +101,16 @@ impl Em624Device {
     }
 
     pub fn send_feature_report(&self, report: &[u8]) -> Result<()> {
-        self.device.send_feature_report(report)
+        self.device
+            .send_feature_report(report)
             .context("Failed to send HID feature report to mouse")?;
         Ok(())
     }
 
     pub fn get_feature_report(&self, buf: &mut [u8]) -> Result<usize> {
-        let len = self.device.get_feature_report(buf)
+        let len = self
+            .device
+            .get_feature_report(buf)
             .context("Failed to read HID feature report from mouse")?;
         Ok(len)
     }
@@ -118,7 +118,11 @@ impl Em624Device {
     /// Flash an entire 2048-byte configuration profile to mouse memory
     pub fn write_profile(&self, data: &[u8]) -> Result<()> {
         if data.len() != PROFILE_SIZE {
-            bail!("Invalid profile size: expected {} bytes, got {}", PROFILE_SIZE, data.len());
+            bail!(
+                "Invalid profile size: expected {} bytes, got {}",
+                PROFILE_SIZE,
+                data.len()
+            );
         }
 
         // Step 1: Start write command: 40 07 00 00 08 00 00 00
@@ -147,8 +151,14 @@ impl Em624Device {
                 report[1..1 + slice.len()].copy_from_slice(slice);
             }
 
-            self.send_feature_report(&report)
-                .with_context(|| format!("Failed on chunk {}/{} (offset 0x{:04x})", chunk_idx + 1, TOTAL_CHUNKS, offset))?;
+            self.send_feature_report(&report).with_context(|| {
+                format!(
+                    "Failed on chunk {}/{} (offset 0x{:04x})",
+                    chunk_idx + 1,
+                    TOTAL_CHUNKS,
+                    offset
+                )
+            })?;
             sleep(Duration::from_millis(5));
         }
 
@@ -162,10 +172,14 @@ impl Em624Device {
                 let err_str = e.to_string();
                 // 0x1F (ERROR_GEN_FAILURE) or 0x48F (ERROR_DEVICE_NOT_CONNECTED):
                 // Hardware acknowledge: Sunplus MCU flashes internal memory and resets USB
-                if err_str.contains("0x0000001F") || err_str.contains("0x0000048F") || err_str.contains("31") {
+                if err_str.contains("0x0000001F")
+                    || err_str.contains("0x0000048F")
+                    || err_str.contains("31")
+                {
                     // Flash successfully committed
                 } else {
-                    return Err(anyhow::Error::new(e)).context("Failed to send Commit command (0x40, 0x0E)");
+                    return Err(anyhow::Error::new(e))
+                        .context("Failed to send Commit command (0x40, 0x0E)");
                 }
             }
         }
@@ -195,8 +209,9 @@ impl Em624Device {
         for chunk_idx in 0..TOTAL_CHUNKS {
             let mut buf = [0u8; 8];
             buf[0] = REPORT_ID_DATA;
-            let len = self.get_feature_report(&mut buf)
-                .with_context(|| format!("Failed on reading chunk {}/{}", chunk_idx + 1, TOTAL_CHUNKS))?;
+            let len = self.get_feature_report(&mut buf).with_context(|| {
+                format!("Failed on reading chunk {}/{}", chunk_idx + 1, TOTAL_CHUNKS)
+            })?;
             if len > 1 {
                 profile_data.extend_from_slice(&buf[1..8]);
             }
@@ -205,7 +220,11 @@ impl Em624Device {
 
         profile_data.truncate(PROFILE_SIZE);
         if profile_data.len() != PROFILE_SIZE {
-            bail!("Incomplete profile read: got {} bytes, expected {}", profile_data.len(), PROFILE_SIZE);
+            bail!(
+                "Incomplete profile read: got {} bytes, expected {}",
+                profile_data.len(),
+                PROFILE_SIZE
+            );
         }
 
         Ok(profile_data)

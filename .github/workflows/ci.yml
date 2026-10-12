@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build & Test (${{ matrix.os }})
+    name: Build & Package (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -17,10 +17,8 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            artifact_name: em624
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            artifact_name: em624.exe
 
     steps:
       - name: Checkout repository
@@ -30,7 +28,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev libasound2-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev
+          sudo apt-get install -y libudev-dev pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev libasound2-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev zip
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -55,16 +53,52 @@ jobs:
       - name: Clippy / Linter
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Build Driver Binary
+      - name: Unit Tests
+        run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Build Release Binary
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Upload Artifact
+      - name: Package Windows (.zip)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist/em624-windows-x64 | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/em624.exe dist/em624-windows-x64/
+          Copy-Item -Recurse exampleProfiles dist/em624-windows-x64/
+          Copy-Item README.md, MIGRATION.md, BUTTON_SPEC.md dist/em624-windows-x64/
+          Compress-Archive -Path dist/em624-windows-x64 -DestinationPath em624-windows-x64.zip -Force
+          Get-Item em624-windows-x64.zip
+
+      - name: Package Linux (.zip & .tar.gz)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          mkdir -p dist/em624-linux-x64
+          cp target/${{ matrix.target }}/release/em624 dist/em624-linux-x64/
+          cp -r exampleProfiles dist/em624-linux-x64/
+          cp README.md LINUX.md MIGRATION.md BUTTON_SPEC.md dist/em624-linux-x64/
+          chmod +x dist/em624-linux-x64/em624
+          cd dist
+          zip -r ../em624-linux-x64.zip em624-linux-x64
+          tar -czvf ../em624-linux-x64.tar.gz em624-linux-x64
+          cd ..
+          ls -lh em624-linux-x64.*
+
+      - name: Upload Windows Package
+        if: matrix.os == 'windows-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: em624-${{ matrix.os }}
+          name: package-windows
+          path: em624-windows-x64.zip
+
+      - name: Upload Linux Packages
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-linux
           path: |
-            target/${{ matrix.target }}/release/em624
-            target/${{ matrix.target }}/release/em624.exe
+            em624-linux-x64.zip
+            em624-linux-x64.tar.gz
 
   prerelease:
     name: Publish Pre-Release
@@ -77,50 +111,47 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Windows Artifact
+      - name: Download Windows Package
         uses: actions/download-artifact@v4
         with:
-          name: em624-windows-latest
-          path: dist/windows
+          name: package-windows
+          path: packages
 
-      - name: Download Linux Artifact
+      - name: Download Linux Packages
         uses: actions/download-artifact@v4
         with:
-          name: em624-ubuntu-latest
-          path: dist/linux
+          name: package-linux
+          path: packages
 
-      - name: Prepare Pre-Release Assets
+      - name: List Downloaded Packages
         run: |
-          mkdir -p release-assets
-          if [ -f "dist/windows/em624.exe" ]; then
-            cp dist/windows/em624.exe release-assets/em624-windows-x64.exe
-          fi
-          if [ -f "dist/linux/em624" ]; then
-            cp dist/linux/em624 release-assets/em624-linux-x64
-            chmod +x release-assets/em624-linux-x64
-          fi
-          ls -la release-assets/
+          ls -lh packages/
 
-      - name: Create or Update Pre-Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: pre-release
-          name: "E-DRA EM624 Configurator (Automated Pre-Release)"
-          body: |
-            Automated continuous pre-release build of the **E-DRA EM624 Mouse Configurator**.
-
-            ### 📦 Included Binaries:
-            - **Windows (x64)**: `em624-windows-x64.exe` (Standalone Native GUI + CLI)
-            - **Linux (x64)**: `em624-linux-x64` (Native GUI + CLI)
-
-            ### 🚀 Features:
-            - **100% Native Offline Rust UI** (eframe/egui): zero HTML, zero webview, zero network activity.
-            - Visual mouse layout with numbered badges (1..7).
-            - Real-time 14-step calibrated DPI tuning (`200` to `10,000 DPI`) for SunplusIT SPCP6662.
-            - Authentic game button preservation with safe Stage 6 masking and checksum recalculation.
-            - Built-in `.bin` to safe `.em624` profile conversion tool.
-          prerelease: true
-          make_latest: false
-          files: release-assets/*
+      - name: Publish or Update GitHub Pre-Release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "pre-release" \
+            packages/em624-windows-x64.zip \
+            packages/em624-linux-x64.zip \
+            packages/em624-linux-x64.tar.gz \
+            --title "E-DRA EM624 Mouse Configurator (Automated Pre-Release)" \
+            --notes "Automated continuous build of the **E-DRA EM624 Mouse Configurator**.
+
+          ### 📦 Complete Packages Included:
+          - **Windows**: \`em624-windows-x64.zip\` (Contains standalone GUI \`em624.exe\` + \`exampleProfiles/\` + documentation)
+          - **Linux**: \`em624-linux-x64.zip\` and \`em624-linux-x64.tar.gz\` (Contains native binary + \`exampleProfiles/\` + \`LINUX.md\` setup guide)
+
+          ### 🚀 Features:
+          - **100% Native Offline Rust UI** (eframe/egui): zero HTML, zero webview, zero network activity.
+          - Proportioned mouse layout with numbered badges (1..7).
+          - Real-time 14-step calibrated DPI tuning (\`200\` to \`10,000 DPI\`) for SunplusIT SPCP6662.
+          - Authentic game button preservation with safe Stage 6 masking and checksum recalculation.
+          - Built-in \`.bin\` to safe \`.em624\` profile conversion tool." \
+            --prerelease \
+            --target "$GITHUB_SHA" || \
+          gh release upload "pre-release" \
+            packages/em624-windows-x64.zip \
+            packages/em624-linux-x64.zip \
+            packages/em624-linux-x64.tar.gz \
+            --clobber
