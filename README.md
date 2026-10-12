@@ -98,4 +98,6 @@ See [`LINUX.md`](./LINUX.md) for system dependencies (Ubuntu, Fedora, Arch Linux
 
 ## License & Disclaimer
 
+This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
+
 This project is for educational and interoperability purposes only. Reverse-engineered from public USB HID traffic and software binaries.

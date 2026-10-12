@@ -3,7 +3,8 @@ name = "em624-driver"
 version = "0.1.0"
 edition = "2021"
 authors = ["Aretzera"]
-description = "Cross-platform driver & configuration CLI for EM624 gaming mouse (SunplusIT SPCP6651B)"
+license = "MIT"
+description = "Cross-platform driver & configuration GUI/CLI for E-DRA EM624 gaming mouse (SunplusIT SPCP6662 / 6662IC)"
 
 [dependencies]
 hidapi = { version = "2.6", default-features = false, features = ["linux-native"] }
