@@ -22,6 +22,8 @@ extracted_assets/
 # Profile backups & temporary debug dumps
 *.bin.bak
 dumps/
+.cache/
+.config/
 
 # Session context logs & personal transcripts
 TODAYS_SESSION_CONTEXT.md

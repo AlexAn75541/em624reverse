@@ -66,8 +66,6 @@ pub struct Em624App {
     hovered_button: Option<usize>,       // 1..=7
     editing_slot: Option<(usize, bool)>, // (slot 1..9, is_gaming)
     mouse_texture: Option<egui::TextureHandle>,
-    // Debug log buffer
-    debug_logs: Vec<String>,
     // Advanced & Fire Key settings
     fire_mode: usize,
     fire_repeat: u32,
@@ -78,6 +76,7 @@ pub struct Em624App {
     double_click_speed: u32,
     rolling_speed: u32,
     scroll_one_screen: bool,
+    polling_rate_idx: usize, // 0=125Hz, 1=250Hz, 2=500Hz, 3=1000Hz
     // LED settings
     led_speed: u32,
     led_mode: usize,
@@ -105,10 +104,6 @@ impl Default for Em624App {
             hovered_button: None,
             editing_slot: None,
             mouse_texture: None,
-            debug_logs: vec![
-                "[INIT] E-DRA EM624 Configurator initialized.".to_string(),
-                "[CONFIG] Settings loaded from .config/settings.json".to_string(),
-            ],
             fire_mode: 0,
             fire_repeat: 3,
             fire_interval: 30,
@@ -118,6 +113,7 @@ impl Default for Em624App {
             double_click_speed: 7,
             rolling_speed: 3,
             scroll_one_screen: false,
+            polling_rate_idx: 3, // 1000 Hz default
             led_speed: 3,
             led_mode: 1,       // Colorful
             led_brightness: 0, // Full
@@ -136,28 +132,20 @@ impl Em624App {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::default();
         if app.config.debug_mode {
-            app.spawn_debug_console();
+            app.spawn_native_terminal();
         }
         app.check_connection();
         app
     }
 
-    fn log_debug(&mut self, msg: String) {
-        println!("{}", msg);
-        self.debug_logs
-            .push(format!("[{}] {}", chrono_or_simple_time(), msg));
-        if self.debug_logs.len() > 100 {
-            self.debug_logs.remove(0);
-        }
-    }
-
-    fn spawn_debug_console(&self) {
+    fn spawn_native_terminal(&self) {
         #[cfg(target_os = "windows")]
-        unsafe {
-            extern "system" {
-                fn AllocConsole() -> i32;
-            }
-            let _ = AllocConsole();
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = std::process::Command::new("cmd.exe")
+                .args(["/k", "title E-DRA EM624 Debug Output Terminal && echo ==================================================== && echo   E-DRA EM624 NATIVE DEBUG TERMINAL ATTACHED && echo   Monitoring USB HID Feature Reports ^& Hardware EEPROM... && echo ===================================================="])
+                .creation_flags(0x00000010) // CREATE_NEW_CONSOLE
+                .spawn();
         }
     }
 
@@ -170,24 +158,57 @@ impl Em624App {
                         format!("E-DRA EM624 (VID 0x{:04x}, PID 0x{:04x})", dev.vid, dev.pid);
                     self.status_message =
                         "Mouse connected and responsive on Interface 1 Col04.".to_string();
-                    self.log_debug(format!(
-                        "USB Discovery: Found EM624 VID=0x{:04x}, PID=0x{:04x}",
+                    println!(
+                        "[USB] Connected: E-DRA EM624 VID=0x{:04x}, PID=0x{:04x}",
                         dev.vid, dev.pid
-                    ));
+                    );
                 }
                 Err(e) => {
                     self.device_connected = false;
                     self.connected_info = "Not detected".to_string();
                     self.status_message = format!("Mouse not found: {}", e);
-                    self.log_debug(format!("USB Discovery: {}", e));
+                    println!("[USB] Disconnected or error: {}", e);
                 }
             },
             Err(e) => {
                 self.device_connected = false;
                 self.status_message = format!("HID API Error: {}", e);
-                self.log_debug(format!("HID API Error: {}", e));
+                println!("[HID_ERROR] {}", e);
             }
         }
+    }
+
+    fn sync_settings_to_profile(&mut self) {
+        // Enforce safe stages and limit
+        self.profile.apply_safe_profile();
+
+        // Sync Polling Rate (byte 0x00A8): 125Hz=1, 250Hz=2, 500Hz=4, 1000Hz=15
+        self.profile.raw[0x00a8] = match self.polling_rate_idx {
+            0 => 0x01, // 125 Hz
+            1 => 0x02, // 250 Hz
+            2 => 0x04, // 500 Hz
+            _ => 0x0f, // 1000 Hz
+        };
+
+        // Sync LED configuration (offsets 0x0006..0x0008)
+        self.profile.raw[0x0006] = self.led_mode as u8;
+        self.profile.raw[0x0007] = self.led_speed as u8;
+        self.profile.raw[0x0008] = self.led_brightness as u8;
+
+        // Sync Fire Key configuration (offsets 0x0010..0x0013)
+        self.profile.raw[0x0010] = self.fire_mode as u8;
+        self.profile.raw[0x0011] = self.fire_repeat as u8;
+        self.profile.raw[0x0012] = self.fire_interval as u8;
+        self.profile.raw[0x0013] = if self.fire_continuous { 1 } else { 0 };
+
+        // Sync Pointer & Scrolling Speeds (offsets 0x0014..0x0017)
+        self.profile.raw[0x0014] = self.pointer_speed as u8;
+        self.profile.raw[0x0015] = if self.pointer_precision { 1 } else { 0 };
+        self.profile.raw[0x0016] = self.double_click_speed as u8;
+        self.profile.raw[0x0017] = self.rolling_speed as u8;
+
+        // Recalculate checksums across all 5 sectors
+        self.profile.recalculate_checksums();
     }
 
     fn read_from_mouse(&mut self) {
@@ -202,7 +223,7 @@ impl Em624App {
         match Em624Device::open_auto(&api) {
             Ok(dev) => {
                 self.status_message = "Reading active 2048-byte EEPROM from mouse...".to_string();
-                self.log_debug("Sending Feature Report 0x40 0x09 (Read 2048 bytes)...".to_string());
+                println!("[USB_READ] Sending Opcode 0x40 0x09 (Read 2048 bytes)...");
                 match dev.read_profile() {
                     Ok(data) => match MouseProfile::from_bytes(&data) {
                         Ok(prof) => {
@@ -211,7 +232,7 @@ impl Em624App {
                             self.status_message =
                                 "Successfully loaded active profile from mouse hardware!"
                                     .to_string();
-                            self.log_debug(format!("Profile read complete (2048 bytes). Checksum0=0x{:02x}, Mask=0x{:02x}", data[0xa3], data[4]));
+                            println!("[USB_READ] Profile read successfully (2048 bytes). Checksum0=0x{:02x}, Mask=0x{:02x}", data[0xa3], data[4]);
                         }
                         Err(e) => self.status_message = format!("Profile parse error: {}", e),
                     },
@@ -236,9 +257,9 @@ impl Em624App {
 
         match Em624Device::open_auto(&api) {
             Ok(dev) => {
-                self.profile.apply_safe_profile();
+                self.sync_settings_to_profile();
                 self.status_message = "Flashing 293 chunks to mouse flash memory...".to_string();
-                self.log_debug("Preparing safe hardware profile: masked stage 6, clamped DPI nibbles <= 12, recalculated 5 checksums.".to_string());
+                println!("[USB_FLASH] Flashing 293 chunks (Report 0x41) + Commit (0x40 0x0E)...");
 
                 match dev.write_profile(&self.profile.raw) {
                     Ok(()) => {
@@ -246,14 +267,11 @@ impl Em624App {
                         self.status_message =
                             "Successfully flashed profile to mouse! Settings active immediately."
                                 .to_string();
-                        self.log_debug(
-                            "Flash commit OK (opcode 0x0E received hardware bus acknowledge)."
-                                .to_string(),
-                        );
+                        println!("[USB_FLASH] Flash write committed successfully!");
                     }
                     Err(e) => {
                         self.status_message = format!("Flash failed: {}", e);
-                        self.log_debug(format!("Flash error: {}", e));
+                        println!("[USB_FLASH_ERROR] {}", e);
                     }
                 }
             }
@@ -274,10 +292,10 @@ impl Em624App {
 
         if ext == "bin" {
             // Automatic on-the-fly conversion of stock .bin into safe .em624 cached file
-            self.log_debug(format!(
-                "Stock .bin detected. Converting on the fly: {}",
+            println!(
+                "[CONVERT] Stock .bin profile detected. Converting on the fly: {}",
                 path.display()
-            ));
+            );
             if let Ok(mut prof) = MouseProfile::load_file(&path) {
                 prof.apply_safe_profile();
                 let stem = path
@@ -290,10 +308,10 @@ impl Em624App {
                     self.file_path = Some(cached_path.clone());
                     self.status_message =
                         format!("Converted and loaded into .cache/{}.em624", stem);
-                    self.log_debug(format!(
-                        "Cached converted safe profile at {}",
+                    println!(
+                        "[CONVERT] Saved cached safe profile to: {}",
                         cached_path.display()
-                    ));
+                    );
                     self.config.last_profile = Some(cached_path.to_string_lossy().to_string());
                     self.config.save();
                     return;
@@ -308,7 +326,7 @@ impl Em624App {
             self.status_message = format!("Loaded profile: {}", path.display());
             self.config.last_profile = Some(path.to_string_lossy().to_string());
             self.config.save();
-            self.log_debug(format!("Loaded profile from {}", path.display()));
+            println!("[LOAD] Loaded profile from: {}", path.display());
         } else {
             self.status_message = "Failed to load profile file.".to_string();
         }
@@ -392,7 +410,7 @@ impl eframe::App for Em624App {
             });
             ui.add_space(6.0);
 
-            // Tab Navigation with plain clean text
+            // Tab Navigation
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.active_tab, Tab::GameMode, "Game Mode");
                 ui.selectable_value(&mut self.active_tab, Tab::OfficeMode, "Office Mode");
@@ -427,7 +445,7 @@ impl eframe::App for Em624App {
 
                 if ui.button("Load Profile").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("All Profiles (*.em624, *.bin)", &["em624", "bin"])
+                        .add_filter("Profiles (*.em624, *.bin)", &["em624", "bin"])
                         .pick_file()
                     {
                         self.load_profile_auto(path);
@@ -440,11 +458,11 @@ impl eframe::App for Em624App {
                         .set_file_name("custom_profile.em624")
                         .save_file()
                     {
-                        self.profile.apply_safe_profile();
+                        self.sync_settings_to_profile();
                         if let Ok(()) = self.profile.save_file(&path) {
                             self.file_path = Some(path.clone());
                             self.status_message = format!("Saved profile to: {}", path.display());
-                            self.log_debug(format!("Saved profile to {}", path.display()));
+                            println!("[SAVE] Saved profile to: {}", path.display());
                         }
                     }
                 }
@@ -459,25 +477,6 @@ impl eframe::App for Em624App {
                 });
             });
             ui.add_space(6.0);
-
-            // If debug mode is enabled, show embedded terminal log drawer
-            if self.config.debug_mode {
-                ui.separator();
-                ui.collapsing("Debug Log Console (Live USB HID Traffic)", |ui| {
-                    ui.set_height(100.0);
-                    egui::ScrollArea::vertical()
-                        .stick_to_bottom(true)
-                        .show(ui, |ui| {
-                            for line in &self.debug_logs {
-                                ui.monospace(
-                                    egui::RichText::new(line)
-                                        .color(Color32::from_rgb(120, 220, 150))
-                                        .size(10.0),
-                                );
-                            }
-                        });
-                });
-            }
         });
 
         // Central Content Area
@@ -509,7 +508,7 @@ impl eframe::App for Em624App {
                 .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
                 .show(ctx, |ui| {
                     ui.set_width(320.0);
-                    ui.label("Select new button function:");
+                    ui.label("Select new button assignment:");
                     ui.add_space(8.0);
 
                     egui::ScrollArea::vertical()
@@ -591,7 +590,7 @@ impl eframe::App for Em624App {
                                 );
                                 close_modal = true;
                             }
-                            if ui.button("Fire Key (Rapid)").clicked() {
+                            if ui.button("Fire Key (Rapid Burst)").clicked() {
                                 self.set_button_binding(
                                     slot_idx,
                                     is_gaming,
@@ -715,7 +714,12 @@ impl Em624App {
         self.profile.raw[off..off + 4].copy_from_slice(bytes);
         self.profile.apply_safe_profile();
         self.profile.refresh_stages();
-        self.log_debug(format!("Remapped slot {} to {:02x?}", slot_idx, bytes));
+        println!(
+            "[REMAP] Updated slot {} ({}) to bytecode {:02x?}",
+            slot_idx,
+            if is_gaming { "Gaming" } else { "Office" },
+            bytes
+        );
     }
 
     fn render_button_mode_tab(&mut self, ui: &mut egui::Ui, is_gaming: bool) {
@@ -836,7 +840,6 @@ impl Em624App {
     }
 
     fn render_mouse_photo(&self, ui: &mut egui::Ui) {
-        // Fatter, natural proportioned mouse visualizer
         let display_size = Vec2::new(320.0, 340.0);
         let (rect, _response) = ui.allocate_exact_size(display_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
@@ -855,7 +858,7 @@ impl Em624App {
         let cx = rect.center().x;
         let cy = rect.center().y;
 
-        // Position badges [1] through [7] centered over the fatter mouse
+        // Numbered badges [1] through [7] directly over the switches on the fatter mouse
         let badges = [
             (1, Pos2::new(cx - 46.0, cy - 75.0), "[1]"), // Button 1: Left Click
             (4, Pos2::new(cx + 46.0, cy - 75.0), "[2]"), // Button 2: Right Click
@@ -946,13 +949,13 @@ impl Em624App {
 
             ui.separator();
 
-            // Right Column: DPI Settings & Polling Rate
+            // Right Column: DPI Stages & Polling Rate
             ui.vertical(|ui| {
                 ui.group(|ui| {
                     ui.heading("DPI Stages (SPCP6662)");
                     ui.label(
                         egui::RichText::new(
-                            "14 calibrated hardware resolution steps (200 to 10,000 DPI)",
+                            "15 calibrated hardware resolution steps (200 to 12,000 DPI)",
                         )
                         .small()
                         .color(Color32::from_rgb(140, 160, 190)),
@@ -974,19 +977,29 @@ impl Em624App {
                             for i in 0..6 {
                                 let is_active = (self.profile.active_stages_mask & (1 << i)) != 0;
                                 let current_step =
-                                    self.profile.dpi_stages[i].level_index.min(12) as usize;
+                                    self.profile.dpi_stages[i].level_index.min(14) as usize;
                                 let color = self.profile.dpi_stages[i].color.clone();
 
                                 ui.label(format!("Stage {}", i + 1));
 
-                                let mut active_checked = is_active;
-                                if ui.checkbox(&mut active_checked, "").changed() {
-                                    if active_checked {
-                                        self.profile.active_stages_mask |= 1 << i;
-                                    } else {
-                                        self.profile.active_stages_mask &= !(1 << i);
+                                // Stage 6 is strictly locked / non-toggleable to protect against the MCU trap
+                                if i == 5 {
+                                    let mut disabled_flag = false;
+                                    ui.add_enabled(
+                                        false,
+                                        egui::Checkbox::new(&mut disabled_flag, ""),
+                                    );
+                                } else {
+                                    let mut active_checked = is_active;
+                                    if ui.checkbox(&mut active_checked, "").changed() {
+                                        if active_checked {
+                                            self.profile.active_stages_mask |= 1 << i;
+                                        } else {
+                                            self.profile.active_stages_mask &= !(1 << i);
+                                        }
+                                        self.profile.active_stages_mask &= 0xdf;
+                                        // Safety clamp
                                     }
-                                    self.profile.active_stages_mask &= 0xdf;
                                 }
 
                                 let dpi_val = OFFICIAL_DPI_STEPS[current_step];
@@ -998,7 +1011,7 @@ impl Em624App {
 
                                 let mut step_val = current_step;
                                 if ui
-                                    .add(egui::Slider::new(&mut step_val, 0..=12).show_value(false))
+                                    .add(egui::Slider::new(&mut step_val, 0..=14).show_value(false))
                                     .changed()
                                 {
                                     let byte_off = 0x2c + (i / 2);
@@ -1031,14 +1044,14 @@ impl Em624App {
                 ui.add_space(8.0);
                 ui.group(|ui| {
                     ui.heading("USB Report Rate (Polling Speed)");
+                    ui.label("Select active polling frequency (interchangeable):");
+                    ui.add_space(6.0);
+
                     ui.horizontal(|ui| {
-                        ui.label("Selected:");
-                        ui.label(
-                            egui::RichText::new("1000 Hz (1 ms)")
-                                .strong()
-                                .color(Color32::from_rgb(46, 213, 115)),
-                        );
-                        ui.label("• 125 Hz • 250 Hz • 500 Hz • 1000 Hz");
+                        ui.radio_value(&mut self.polling_rate_idx, 0, "125 Hz (8 ms)");
+                        ui.radio_value(&mut self.polling_rate_idx, 1, "250 Hz (4 ms)");
+                        ui.radio_value(&mut self.polling_rate_idx, 2, "500 Hz (2 ms)");
+                        ui.radio_value(&mut self.polling_rate_idx, 3, "1000 Hz (1 ms)");
                     });
                 });
             });
@@ -1245,14 +1258,25 @@ impl Em624App {
 
             let mut dbg = self.config.debug_mode;
             if ui
-                .checkbox(&mut dbg, "Enable Live Debug Console Window")
+                .checkbox(
+                    &mut dbg,
+                    "Enable Live Debug Console Window (OS Native Terminal)",
+                )
                 .changed()
             {
                 self.config.debug_mode = dbg;
                 self.config.save();
                 if dbg {
-                    self.spawn_debug_console();
+                    self.spawn_native_terminal();
                 }
+            }
+
+            ui.add_space(4.0);
+            if ui
+                .button("Launch Native CMD / Terminal Window Now")
+                .clicked()
+            {
+                self.spawn_native_terminal();
             }
         });
 
@@ -1280,7 +1304,7 @@ impl Em624App {
         ui.group(|ui| {
             ui.heading("About & Hardware Specifications");
             ui.label("• Device: E-DRA EM624 Gaming Mouse (7D + 1 Wheel)");
-            ui.label("• Optical Sensor: SunplusIT SPCP6662 (6662IC) • 14 discrete DPI steps (200..10000 DPI)");
+            ui.label("• Optical Sensor: SunplusIT SPCP6662 (6662IC) • 15 discrete DPI steps (200..12000 DPI)");
             ui.label("• MCU Controller: SunplusIT SPCP6651B");
             ui.label("• Switches: Huano 50M rated");
             ui.label("• Communication: 100% offline, native Rust, zero network or HTML dependencies");
@@ -1299,18 +1323,4 @@ fn slot_idx_to_button_num(slot_idx: usize) -> u8 {
         9 => 6,
         _ => slot_idx as u8,
     }
-}
-
-fn chrono_or_simple_time() -> String {
-    use std::time::SystemTime;
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
-    format!(
-        "{}:{:02}:{:02}",
-        (now / 3600) % 24,
-        (now / 60) % 60,
-        now % 60
-    )
 }

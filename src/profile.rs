@@ -9,8 +9,8 @@ pub const PROFILE_MAGIC: [u8; 4] = [0x1b, 0xcf, 0x08, 0xb8];
 
 /// Official DPI lookup table for the SunplusIT SPCP6662 (6662IC) sensor
 /// extracted from the official application binary DFM (TForm1 gbCPI strings).
-pub const OFFICIAL_DPI_STEPS: [u32; 14] = [
-    200, 400, 600, 800, 1000, 1200, 1600, 2000, 2400, 3200, 4800, 6400, 8000, 10000,
+pub const OFFICIAL_DPI_STEPS: [u32; 15] = [
+    200, 400, 600, 800, 1000, 1200, 1600, 2000, 2400, 3200, 4800, 6400, 8000, 10000, 12000,
 ];
 
 /// Standard 12-key button mapping (4 bytes per key, 48 bytes total) from factory firmware.
@@ -330,17 +330,15 @@ impl MouseProfile {
         self.raw[0x03ff] = Self::calculate_checksum(&self.raw[0x03f8..0x03ff]);
     }
 
-    /// Clamp all 6 DPI stage nibbles to max 12 (0x0C = 5200 DPI).
-    /// The SPCP6651B optical sensor only supports calibrated register indices 0..12.
-    /// Indices > 12 (such as 14 = 7200 DPI) cause an out-of-bounds sensor calibration
-    /// table lookup in MCU firmware, crashing the physical button interrupt handler.
+    /// Clamp all 6 DPI stage nibbles to max 14 (12000 DPI max hardware spec).
+    /// Prevents out-of-bounds sensor calibration table lookups in MCU firmware.
     pub fn clamp_dpi_nibbles(&mut self) {
         if self.raw.len() != PROFILE_SIZE {
             return;
         }
         for byte_idx in 0x2c..=0x2e {
-            let low = (self.raw[byte_idx] & 0x0f).min(12);
-            let high = ((self.raw[byte_idx] >> 4) & 0x0f).min(12);
+            let low = (self.raw[byte_idx] & 0x0f).min(14);
+            let high = ((self.raw[byte_idx] >> 4) & 0x0f).min(14);
             self.raw[byte_idx] = low | (high << 4);
         }
     }
@@ -488,11 +486,11 @@ mod tests {
         profile.raw[0x2e] = 0xec;
         profile.apply_safe_profile();
 
-        // Ensure high nibble was clamped to <= 12
+        // Ensure high nibble was clamped to <= 14 (12000 DPI max)
         let high_nibble = (profile.raw[0x2e] >> 4) & 0x0f;
         assert!(
-            high_nibble <= 12,
-            "Nibble should be clamped <= 12, got {}",
+            high_nibble <= 14,
+            "Nibble should be clamped <= 14, got {}",
             high_nibble
         );
         assert_eq!(
