@@ -27,6 +27,36 @@ Open-source driver, reverse-engineering toolkit, and configuration CLI for the *
 
 ---
 
+## Clean Recompile & Profile Switching Workflow
+
+To perform a clean build and switch between multiple profiles on Windows PowerShell:
+
+### 1. Clean Rebuild (Single Command)
+```powershell
+# Ensure official stock software (EM624 Mouse.exe) is closed to release USB HID interface
+cargo clean; cargo build
+```
+
+### 2. Load Profile 1 (Daily Use / Productivity)
+```powershell
+.\target\debug\em624.exe apply-profile profiles\DailyUse.bin
+```
+*Applies 1200 / 2000 / 2800 / 3600 / 4400 DPI stages, RGB lighting, and standard mouse buttons with functional Forward & Backward side buttons.*
+
+### 3. Load Profile 2 (Gaming / Valorant + CS2 / WarThunder)
+```powershell
+.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin
+```
+*Applies tailored competitive DPI stages and colors without freezing mouse buttons.*
+
+### 4. Verify Active State via Hardware Probe
+```powershell
+.\target\debug\em624.exe probe
+```
+*Reads active configuration directly from the mouse memory to confirm successful application.*
+
+---
+
 ## Quick Start (PowerShell / Windows)
 
 ### 1. Build the Driver

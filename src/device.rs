@@ -121,14 +121,14 @@ impl Em624Device {
             bail!("Invalid profile size: expected {} bytes, got {}", PROFILE_SIZE, data.len());
         }
 
-        // Step 1: Start write command (0x40, 0x07, offset 0x0000, len 0x0800)
+        // Step 1: Start write command: 40 07 00 00 08 00 00 00
         let mut start_cmd = [0u8; 8];
         start_cmd[0] = REPORT_ID_CMD;
         start_cmd[1] = CMD_START_WRITE;
-        start_cmd[2] = 0x00; // offset LSB
-        start_cmd[3] = 0x00; // offset MSB
-        start_cmd[4] = 0x00; // len LSB (0x0800 = 2048)
-        start_cmd[5] = 0x08; // len MSB
+        start_cmd[2] = 0x00;
+        start_cmd[3] = 0x00;
+        start_cmd[4] = 0x08; // length 0x0800 (2048 bytes)
+        start_cmd[5] = 0x00;
         start_cmd[6] = 0x00;
         start_cmd[7] = 0x00;
         self.send_feature_report(&start_cmd)
@@ -189,45 +189,69 @@ impl Em624Device {
         let _ = self.get_feature_report(&mut dummy);
         sleep(Duration::from_millis(5));
 
-        // Step C: Query config offset (0x40, 0x09, 0x0122, 0x000c)
+        // Step C: Query config offset: 40 09 01 22 00 0c 00 00
         let mut query_cmd = [0u8; 8];
         query_cmd[0] = REPORT_ID_CMD;
         query_cmd[1] = CMD_READ;
-        query_cmd[2] = 0x22; // offset LSB
-        query_cmd[3] = 0x01; // offset MSB
-        query_cmd[4] = 0x0c; // len LSB (12 bytes)
-        query_cmd[5] = 0x00; // len MSB
+        query_cmd[2] = 0x01;
+        query_cmd[3] = 0x22;
+        query_cmd[4] = 0x00;
+        query_cmd[5] = 0x0c;
         self.send_feature_report(&query_cmd)?;
-        sleep(Duration::from_millis(5));
+        sleep(Duration::from_millis(10));
 
         // Step D: Read 2 chunks of config info
         for _ in 0..2 {
             let mut buf = [0u8; 8];
             buf[0] = REPORT_ID_DATA;
             let _ = self.get_feature_report(&mut buf);
-            sleep(Duration::from_millis(4));
+            sleep(Duration::from_millis(5));
         }
 
-        // Step E: Request full 2048-byte profile (0x40, 0x09, 0x0000, 0x0800)
+        // Step E: Request full 2048-byte profile: 40 09 00 00 08 00 00 00
         let mut read_cmd = [0u8; 8];
         read_cmd[0] = REPORT_ID_CMD;
         read_cmd[1] = CMD_READ;
         read_cmd[2] = 0x00;
         read_cmd[3] = 0x00;
-        read_cmd[4] = 0x00;
-        read_cmd[5] = 0x08;
+        read_cmd[4] = 0x08;
+        read_cmd[5] = 0x00;
+        read_cmd[6] = 0x00;
+        read_cmd[7] = 0x00;
         self.send_feature_report(&read_cmd)?;
-        sleep(Duration::from_millis(5));
+        sleep(Duration::from_millis(15));
 
         // Step F: Read all 293 chunks via GET_REPORT 0x41
         let mut profile_data = Vec::with_capacity(PROFILE_SIZE);
         for chunk_idx in 0..TOTAL_CHUNKS {
-            let mut buf = [0u8; 8];
-            buf[0] = REPORT_ID_DATA;
-            let len = self.get_feature_report(&mut buf)
-                .with_context(|| format!("Failed on reading chunk {}/{}", chunk_idx + 1, TOTAL_CHUNKS))?;
-            if len > 1 {
-                profile_data.extend_from_slice(&buf[1..8]);
+            let mut buf;
+            let mut attempts = 0;
+            let mut last_err = None;
+            let mut success = false;
+
+            while attempts < 3 {
+                buf = [0u8; 8];
+                buf[0] = REPORT_ID_DATA;
+                match self.get_feature_report(&mut buf) {
+                    Ok(len) => {
+                        if len > 1 {
+                            profile_data.extend_from_slice(&buf[1..8]);
+                        }
+                        success = true;
+                        break;
+                    }
+                    Err(e) => {
+                        last_err = Some(e);
+                        attempts += 1;
+                        sleep(Duration::from_millis(10));
+                    }
+                }
+            }
+
+            if !success {
+                if let Some(e) = last_err {
+                    return Err(e).context(format!("Failed on reading chunk {}/{}", chunk_idx + 1, TOTAL_CHUNKS));
+                }
             }
             sleep(Duration::from_millis(4));
         }
