@@ -100,4 +100,5 @@ See [`LINUX.md`](./LINUX.md) for system dependencies (Ubuntu, Fedora, Arch Linux
 
 This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
 
-This project is for educational and interoperability purposes only. Reverse-engineered from public USB HID traffic and software binaries.
+### Trademark Notice
+**E-DRA** and all related marks and logos are trademarks or registered trademarks of their respective owners. This project is an independent open-source reverse-engineering effort developed for interoperability, accessibility, and hardware preservation. It is not affiliated with, sponsored by, or endorsed by E-DRA, Sunplus Innovation Technology Inc., or any of their affiliates. All brand names, product models, and trademarks are used strictly for device identification and compatibility reference.
