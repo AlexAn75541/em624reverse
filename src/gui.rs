@@ -93,6 +93,22 @@ impl Default for Em624App {
         let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
         let profile = MouseProfile::from_bytes(baseline).unwrap();
 
+        let _ = fs::create_dir_all(".cache");
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(".cache/debug.log")
+        {
+            use std::io::Write;
+            let ts = chrono_or_simple_time();
+            let _ = writeln!(
+                f,
+                "[{}] [STARTUP] E-DRA EM624 Configurator GUI session started.",
+                ts
+            );
+            let _ = f.flush();
+        }
+
         Self {
             config,
             profile,
@@ -139,13 +155,57 @@ impl Em624App {
     }
 
     fn spawn_native_terminal(&self) {
-        #[cfg(target_os = "windows")]
+        if let Ok(exe) = std::env::current_exe() {
+            #[cfg(target_os = "windows")]
+            {
+                use std::os::windows::process::CommandExt;
+                let _ = std::process::Command::new(exe)
+                    .arg("log-viewer")
+                    .creation_flags(0x00000010) // CREATE_NEW_CONSOLE
+                    .spawn();
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let terminals = [
+                    "x-terminal-emulator",
+                    "gnome-terminal",
+                    "konsole",
+                    "xfce4-terminal",
+                    "alacritty",
+                    "xterm",
+                ];
+                let mut spawned = false;
+                for term in terminals {
+                    if let Ok(_child) = std::process::Command::new(term)
+                        .arg("-e")
+                        .arg(format!("{} log-viewer", exe.display()))
+                        .spawn()
+                    {
+                        spawned = true;
+                        break;
+                    }
+                }
+                if !spawned {
+                    let _ = std::process::Command::new(exe).arg("log-viewer").spawn();
+                }
+            }
+        }
+    }
+
+    fn log_debug(&self, msg: &str) {
+        let ts = chrono_or_simple_time();
+        let formatted = format!("[{}] {}", ts, msg);
+        println!("{}", formatted);
+        let _ = fs::create_dir_all(".cache");
+        if let Ok(mut f) = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(".cache/debug.log")
         {
-            use std::os::windows::process::CommandExt;
-            let _ = std::process::Command::new("cmd.exe")
-                .args(["/k", "title E-DRA EM624 Debug Output Terminal && echo ==================================================== && echo   E-DRA EM624 NATIVE DEBUG TERMINAL ATTACHED && echo   Monitoring USB HID Feature Reports ^& Hardware EEPROM... && echo ===================================================="])
-                .creation_flags(0x00000010) // CREATE_NEW_CONSOLE
-                .spawn();
+            use std::io::Write;
+            let _ = writeln!(f, "{}", formatted);
+            let _ = f.flush();
         }
     }
 
@@ -158,22 +218,22 @@ impl Em624App {
                         format!("E-DRA EM624 (VID 0x{:04x}, PID 0x{:04x})", dev.vid, dev.pid);
                     self.status_message =
                         "Mouse connected and responsive on Interface 1 Col04.".to_string();
-                    println!(
+                    self.log_debug(&format!(
                         "[USB] Connected: E-DRA EM624 VID=0x{:04x}, PID=0x{:04x}",
                         dev.vid, dev.pid
-                    );
+                    ));
                 }
                 Err(e) => {
                     self.device_connected = false;
                     self.connected_info = "Not detected".to_string();
                     self.status_message = format!("Mouse not found: {}", e);
-                    println!("[USB] Disconnected or error: {}", e);
+                    self.log_debug(&format!("[USB] Disconnected or error: {}", e));
                 }
             },
             Err(e) => {
                 self.device_connected = false;
                 self.status_message = format!("HID API Error: {}", e);
-                println!("[HID_ERROR] {}", e);
+                self.log_debug(&format!("[HID_ERROR] {}", e));
             }
         }
     }
@@ -223,7 +283,7 @@ impl Em624App {
         match Em624Device::open_auto(&api) {
             Ok(dev) => {
                 self.status_message = "Reading active 2048-byte EEPROM from mouse...".to_string();
-                println!("[USB_READ] Sending Opcode 0x40 0x09 (Read 2048 bytes)...");
+                self.log_debug("[USB_READ] Sending Opcode 0x40 0x09 (Read 2048 bytes)...");
                 match dev.read_profile() {
                     Ok(data) => match MouseProfile::from_bytes(&data) {
                         Ok(prof) => {
@@ -232,7 +292,7 @@ impl Em624App {
                             self.status_message =
                                 "Successfully loaded active profile from mouse hardware!"
                                     .to_string();
-                            println!("[USB_READ] Profile read successfully (2048 bytes). Checksum0=0x{:02x}, Mask=0x{:02x}", data[0xa3], data[4]);
+                            self.log_debug(&format!("[USB_READ] Profile read successfully (2048 bytes). Checksum0=0x{:02x}, Mask=0x{:02x}", data[0xa3], data[4]));
                         }
                         Err(e) => self.status_message = format!("Profile parse error: {}", e),
                     },
@@ -259,7 +319,9 @@ impl Em624App {
             Ok(dev) => {
                 self.sync_settings_to_profile();
                 self.status_message = "Flashing 293 chunks to mouse flash memory...".to_string();
-                println!("[USB_FLASH] Flashing 293 chunks (Report 0x41) + Commit (0x40 0x0E)...");
+                self.log_debug(
+                    "[USB_FLASH] Flashing 293 chunks (Report 0x41) + Commit (0x40 0x0E)...",
+                );
 
                 match dev.write_profile(&self.profile.raw) {
                     Ok(()) => {
@@ -267,11 +329,11 @@ impl Em624App {
                         self.status_message =
                             "Successfully flashed profile to mouse! Settings active immediately."
                                 .to_string();
-                        println!("[USB_FLASH] Flash write committed successfully!");
+                        self.log_debug("[USB_FLASH] Flash write committed successfully!");
                     }
                     Err(e) => {
                         self.status_message = format!("Flash failed: {}", e);
-                        println!("[USB_FLASH_ERROR] {}", e);
+                        self.log_debug(&format!("[USB_FLASH_ERROR] {}", e));
                     }
                 }
             }
@@ -292,10 +354,10 @@ impl Em624App {
 
         if ext == "bin" {
             // Automatic on-the-fly conversion of stock .bin into safe .em624 cached file
-            println!(
+            self.log_debug(&format!(
                 "[CONVERT] Stock .bin profile detected. Converting on the fly: {}",
                 path.display()
-            );
+            ));
             if let Ok(mut prof) = MouseProfile::load_file(&path) {
                 prof.apply_safe_profile();
                 let stem = path
@@ -308,10 +370,10 @@ impl Em624App {
                     self.file_path = Some(cached_path.clone());
                     self.status_message =
                         format!("Converted and loaded into .cache/{}.em624", stem);
-                    println!(
+                    self.log_debug(&format!(
                         "[CONVERT] Saved cached safe profile to: {}",
                         cached_path.display()
-                    );
+                    ));
                     self.config.last_profile = Some(cached_path.to_string_lossy().to_string());
                     self.config.save();
                     return;
@@ -326,7 +388,7 @@ impl Em624App {
             self.status_message = format!("Loaded profile: {}", path.display());
             self.config.last_profile = Some(path.to_string_lossy().to_string());
             self.config.save();
-            println!("[LOAD] Loaded profile from: {}", path.display());
+            self.log_debug(&format!("[LOAD] Loaded profile from: {}", path.display()));
         } else {
             self.status_message = "Failed to load profile file.".to_string();
         }
@@ -462,7 +524,7 @@ impl eframe::App for Em624App {
                         if let Ok(()) = self.profile.save_file(&path) {
                             self.file_path = Some(path.clone());
                             self.status_message = format!("Saved profile to: {}", path.display());
-                            println!("[SAVE] Saved profile to: {}", path.display());
+                            self.log_debug(&format!("[SAVE] Saved profile to: {}", path.display()));
                         }
                     }
                 }
@@ -714,12 +776,12 @@ impl Em624App {
         self.profile.raw[off..off + 4].copy_from_slice(bytes);
         self.profile.apply_safe_profile();
         self.profile.refresh_stages();
-        println!(
+        self.log_debug(&format!(
             "[REMAP] Updated slot {} ({}) to bytecode {:02x?}",
             slot_idx,
             if is_gaming { "Gaming" } else { "Office" },
             bytes
-        );
+        ));
     }
 
     fn render_button_mode_tab(&mut self, ui: &mut egui::Ui, is_gaming: bool) {
@@ -1310,6 +1372,20 @@ impl Em624App {
             ui.label("• Communication: 100% offline, native Rust, zero network or HTML dependencies");
         });
     }
+}
+
+pub fn chrono_or_simple_time() -> String {
+    use std::time::SystemTime;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!(
+        "{}:{:02}:{:02}",
+        (now / 3600) % 24,
+        (now / 60) % 60,
+        now % 60
+    )
 }
 
 fn slot_idx_to_button_num(slot_idx: usize) -> u8 {

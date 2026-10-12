@@ -73,6 +73,8 @@ enum Commands {
         #[arg(short, long, default_value = "standard")]
         buttons: String,
     },
+    /// Launch the dedicated one-way native debug log viewer terminal
+    LogViewer,
     /// Convert and fix all .bin profiles in a directory
     #[command(alias = "repair-profiles")]
     ConvertAll {
@@ -379,6 +381,9 @@ fn main() -> Result<()> {
                 target_path.display()
             );
         }
+        Some(Commands::LogViewer) => {
+            run_log_viewer()?;
+        }
         Some(Commands::ConvertAll { dir, buttons }) => {
             println!("Scanning directory for .bin profiles: {}", dir.display());
             let mut converted_count = 0;
@@ -415,4 +420,50 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_log_viewer() -> Result<()> {
+    #[cfg(target_os = "windows")]
+    unsafe {
+        extern "system" {
+            fn SetConsoleTitleW(title: *const u16) -> i32;
+        }
+        let title: Vec<u16> = "E-DRA EM624 Live Debug Terminal (Read-Only)\0"
+            .encode_utf16()
+            .collect();
+        let _ = SetConsoleTitleW(title.as_ptr());
+    }
+
+    println!("========================================================================");
+    println!("  E-DRA EM624 LIVE DEBUG OUTPUT TERMINAL (READ-ONLY)");
+    println!("  Monitoring USB HID Feature Reports, Hardware Registers & EEPROM Events");
+    println!("========================================================================\n");
+
+    let log_path = std::path::Path::new(".cache/debug.log");
+    let _ = std::fs::create_dir_all(".cache");
+    if !log_path.exists() {
+        let _ = std::fs::write(log_path, "[INIT] Live debug log stream initialized.\n");
+    }
+
+    use std::io::{BufRead, BufReader, Write};
+    let file = std::fs::File::open(log_path)?;
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(_) => {
+                print!("{}", line);
+                let _ = std::io::stdout().flush();
+            }
+            Err(e) => {
+                eprintln!("[LOG ERROR] {}", e);
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
+    }
 }

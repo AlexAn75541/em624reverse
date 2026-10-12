@@ -30,7 +30,7 @@
 - [x] Fire Key and pointer/wheel speed settings.
 - [x] Embedded on-the-fly `.bin` profile converter into `.cache/` at load time.
 - [x] Static UI scaling presets (`100%`, `125%`, `150%`, `175%`, `200%`) in `.config/settings.json`.
-- [x] OS native terminal debug mode (`cmd.exe` allocation on Windows).
+- [x] OS native terminal debug mode (`em624.exe log-viewer` read-only log monitor in dedicated console window).
 - [x] Cross-platform GitHub Actions CI/CD building and packaging `.zip` releases for Windows and Linux.
 
 ---
