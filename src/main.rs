@@ -31,12 +31,12 @@ enum Commands {
     ApplyProfile {
         /// Path to the .bin profile file
         path: PathBuf,
-        /// Full compatibility mode matching the original Delphi application profile logic
-        #[arg(long, default_value_t = true)]
-        og_compat: bool,
-        /// Automatically sanitize button mapping to ensure clicks/scroll remain 100% active
-        #[arg(long, default_value_t = true)]
-        safe_buttons: bool,
+        /// Button mapping mode:
+        /// 'standard' (default): 100% standard mouse actions (Left, Right, Middle, Forward, Back, CPI Loop)
+        /// 'keep': Preserve profile's own button mappings (e.g. Spacebar/Q for Valorant) with safe stage 6 mask
+        /// 'daily': Clone DailyUse baseline
+        #[arg(long, default_value = "standard")]
+        buttons: String,
         #[arg(long)]
         vid: Option<u16>,
         #[arg(long)]
@@ -51,19 +51,34 @@ enum Commands {
         #[arg(long)]
         pid: Option<u16>,
     },
-    /// Repair a .bin profile's button table while preserving custom DPI and RGB colors
-    FixProfile {
+    /// Live probe of the connected mouse hardware state over USB
+    Probe {
+        #[arg(long)]
+        vid: Option<u16>,
+        #[arg(long)]
+        pid: Option<u16>,
+    },
+    /// Convert and fix a profile .bin file for full compatibility with mouse and modern driver
+    #[command(alias = "fix-profile")]
+    ConvertProfile {
         /// Path to input .bin profile file
         input: PathBuf,
-        /// Path to output fixed .bin profile file (defaults to overwriting input with backup)
+        /// Path to output converted .bin profile file (defaults to overwriting input with backup)
         #[arg(short, long)]
         output: Option<PathBuf>,
+        /// Button mapping mode: 'standard' (default) or 'keep'
+        #[arg(short, long, default_value = "standard")]
+        buttons: String,
     },
-    /// Scan and repair all .bin profiles in a directory
-    RepairProfiles {
+    /// Convert and fix all .bin profiles in a directory
+    #[command(alias = "repair-profiles")]
+    ConvertAll {
         /// Directory containing .bin profiles
         #[arg(default_value = "profiles")]
         dir: PathBuf,
+        /// Button mapping mode: 'standard' (default) or 'keep'
+        #[arg(short, long, default_value = "standard")]
+        buttons: String,
     },
 }
 
@@ -101,12 +116,22 @@ fn main() -> Result<()> {
 
             println!("Device Name: {}", profile.device_name);
             println!("Active Stages Mask: 0x{:02x} ({:06b})", profile.active_stages_mask, profile.active_stages_mask & 0x3f);
-            let btn_status = if profile.is_button_table_valid() {
-                "[VALID] Standard 1:1 Click Bindings"
-            } else {
-                "[WARNING] Contains non-standard / broken macro bindings (clicks may be non-responsive)"
-            };
-            println!("Button Table Status: {}", btn_status);
+            let mode_str = if profile.is_gaming_mode { "Gaming Mode" } else { "Office Mode" };
+            println!("Active Profile Mode: {}", mode_str);
+
+            println!("\nOffice Mode Buttons (0x00C0):");
+            for btn in &profile.office_buttons {
+                if btn.description != "None" {
+                    println!("  Key {:2}: {}", btn.key_number, btn.description);
+                }
+            }
+
+            println!("\nGaming Mode Buttons (0x00F1):");
+            for btn in &profile.gaming_buttons {
+                if btn.description != "None" {
+                    println!("  Key {:2}: {}", btn.key_number, btn.description);
+                }
+            }
 
             println!("\nDPI Stages & Color Mapping:");
             for (idx, stage) in profile.dpi_stages.iter().enumerate() {
@@ -123,17 +148,27 @@ fn main() -> Result<()> {
                 );
             }
         }
-        Commands::ApplyProfile { path, og_compat, safe_buttons, vid, pid } => {
+        Commands::ApplyProfile { path, buttons, vid, pid } => {
             println!("Reading profile file: {}", path.display());
             let mut profile = MouseProfile::load_file(&path)?;
             println!("Loaded profile '{}' (Active mask: 0x{:02x})", profile.device_name, profile.active_stages_mask);
 
-            if og_compat {
-                println!("  -> [OG-COMPAT] Synthesizing configuration with 100% Delphi hardware baseline...");
-                profile.apply_og_compat();
-            } else if safe_buttons {
-                if profile.sanitize_buttons() {
-                    println!("  -> [AUTO-REPAIR] Applied standard working button table (Left/Right/Middle clicks restored).");
+            match buttons.to_lowercase().as_str() {
+                "standard" => {
+                    println!("  -> [BUTTONS] Enforcing standard mouse buttons (Left, Right, Middle, Forward, Backward, CPI Loop)...");
+                    profile.apply_standard_buttons();
+                }
+                "keep" => {
+                    println!("  -> [BUTTONS] Preserving profile's own button mappings (safe stage 6 mask & verified checksums)...");
+                    profile.apply_safe_profile();
+                }
+                "daily" => {
+                    println!("  -> [BUTTONS] Synthesizing with DailyUse baseline...");
+                    profile.apply_og_compat();
+                }
+                other => {
+                    eprintln!("Unknown button mode '{}', falling back to 'standard'", other);
+                    profile.apply_standard_buttons();
                 }
             }
 
@@ -166,10 +201,71 @@ fn main() -> Result<()> {
                 println!("Active Stages Mask: 0x{:02x}", profile.active_stages_mask);
             }
         }
-        Commands::FixProfile { input, output } => {
+        Commands::Probe { vid, pid } => {
+            println!("Connecting to EM624 Mouse for hardware diagnostic probe...");
+            let api = HidApi::new()?;
+            let dev = match (vid, pid) {
+                (Some(v), Some(p)) => Em624Device::open_vid_pid(&api, v, p)?,
+                _ => Em624Device::open_auto(&api)?,
+            };
+
+            println!("  Connected: VID 0x{:04x}, PID 0x{:04x}", dev.vid, dev.pid);
+            println!("  Reading active profile memory over USB HID (293 chunks)...");
+            let data = dev.read_profile()?;
+            let profile = MouseProfile::parse(&data)?;
+
+            println!("\n=== EM624 LIVE HARDWARE PROBE REPORT ===");
+            println!("Device Name String : {}", profile.device_name);
+            println!("Active Profile Mode: {}", if profile.is_gaming_mode { "Gaming Mode" } else { "Office Mode" });
+            println!("Active Stages Mask : 0x{:02x} ({:06b})", profile.active_stages_mask, profile.active_stages_mask & 0x3f);
+
+            // Hardware register safety audit
+            let reg_mode = data[0x00a4];
+            let reg_lockout = data[0x03f9];
+            let stage6_active = (profile.active_stages_mask & (1 << 5)) != 0;
+
+            println!("\n--- Hardware Register Audit ---");
+            println!("  Mode Register (0x00A4)   : 0x{:02x} -> {}", reg_mode, if reg_mode == 1 { "Gaming [OK]" } else { "Office" });
+            println!("  Lockout Flag  (0x03F9)   : 0x{:02x} -> {}", reg_lockout, if (reg_lockout & 0x80) == 0 { "Buttons ACTIVE [OK]" } else { "⚠️ BUTTON INTERRUPT LOCKED (0x80 bit set!)" });
+            println!("  Stage 6 Status           : {}", if !stage6_active { "Disabled [SAFE]" } else { "⚠️ ENABLED (May trigger MCU sensor hang!)" });
+
+            println!("\n--- Active DPI Stages & RGB LEDs ---");
+            for (idx, stage) in profile.dpi_stages.iter().enumerate() {
+                let status = if stage.enabled { "ACTIVE" } else { "disabled" };
+                println!(
+                    "  Stage {}: ~{:4} DPI (Level {:2}) | RGB=({:3}, {:3}, {:3}) | [{}]",
+                    idx + 1, stage.approx_dpi, stage.level_index,
+                    stage.color.r, stage.color.g, stage.color.b, status
+                );
+            }
+
+            println!("\n--- Current Button Mapping ({}) ---", if profile.is_gaming_mode { "Gaming Mode" } else { "Office Mode" });
+            let active_buttons = if profile.is_gaming_mode { &profile.gaming_buttons } else { &profile.office_buttons };
+            for btn in active_buttons {
+                if btn.description != "None" {
+                    println!("  Key {:2}: {}", btn.key_number, btn.description);
+                }
+            }
+            println!("========================================\n");
+        }
+        Commands::ConvertProfile { input, output, buttons } => {
             println!("Loading profile: {}", input.display());
             let mut profile = MouseProfile::load_file(&input)?;
-            let modified = profile.sanitize_buttons();
+
+            match buttons.to_lowercase().as_str() {
+                "standard" => {
+                    println!("  -> Enforcing standard mouse buttons (Left, Right, Middle, Forward, Back, CPI Loop)...");
+                    profile.apply_standard_buttons();
+                }
+                "keep" => {
+                    println!("  -> Preserving profile's custom buttons with safe stage 6 mask & recalculated checksums...");
+                    profile.apply_safe_profile();
+                }
+                _ => {
+                    profile.apply_standard_buttons();
+                }
+            }
+
             let target_path = output.unwrap_or_else(|| {
                 let mut bak = input.clone();
                 bak.set_extension("bin.bak");
@@ -179,15 +275,11 @@ fn main() -> Result<()> {
             });
 
             profile.save_file(&target_path)?;
-            if modified {
-                println!("Repaired button table! Custom DPI/LED preserved. Saved to: {}", target_path.display());
-            } else {
-                println!("Button table was already valid. Saved to: {}", target_path.display());
-            }
+            println!("Successfully converted and saved profile to: {}", target_path.display());
         }
-        Commands::RepairProfiles { dir } => {
+        Commands::ConvertAll { dir, buttons } => {
             println!("Scanning directory for profiles: {}", dir.display());
-            let mut repaired_count = 0;
+            let mut converted_count = 0;
             let mut scanned_count = 0;
 
             for entry in fs::read_dir(&dir)? {
@@ -196,21 +288,22 @@ fn main() -> Result<()> {
                 if path.extension().and_then(|s| s.to_str()) == Some("bin") {
                     scanned_count += 1;
                     if let Ok(mut profile) = MouseProfile::load_file(&path) {
-                        if !profile.is_button_table_valid() {
-                            let mut bak = path.clone();
-                            bak.set_extension("bin.bak");
-                            let _ = fs::copy(&path, &bak);
-                            profile.sanitize_buttons();
-                            profile.save_file(&path)?;
-                            println!("  [REPAIRED] {} (backed up to .bak)", path.file_name().unwrap_or_default().to_string_lossy());
-                            repaired_count += 1;
-                        } else {
-                            println!("  [OK]       {}", path.file_name().unwrap_or_default().to_string_lossy());
+                        let mut bak = path.clone();
+                        bak.set_extension("bin.bak");
+                        let _ = fs::copy(&path, &bak);
+
+                        match buttons.to_lowercase().as_str() {
+                            "keep" => profile.apply_safe_profile(),
+                            _ => profile.apply_standard_buttons(),
                         }
+
+                        profile.save_file(&path)?;
+                        println!("  [CONVERTED] {} (backed up to .bak)", path.file_name().unwrap_or_default().to_string_lossy());
+                        converted_count += 1;
                     }
                 }
             }
-            println!("\nScan finished: {} scanned, {} repaired with standard working buttons.", scanned_count, repaired_count);
+            println!("\nConversion finished: {} scanned, {} converted.", scanned_count, converted_count);
         }
     }
 

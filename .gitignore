@@ -21,11 +21,7 @@ extracted_assets/
 
 # Profile backups & temporary debug dumps
 *.bin.bak
-debug_read.bin
-dumped_after_write.bin
-test_read.bin
-report_desc_if1.bin
-verified_mouse.bin
+dumps/
 
 # Operating System & Editor Files
 .DS_Store

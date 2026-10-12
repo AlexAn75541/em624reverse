@@ -84,20 +84,30 @@ All `.bin` profiles are exactly 2048 bytes:
 - **Cause**: Profiles created for games (`Valorant+CS2.bin`, `Bodycam.bin`, etc.) had broken macro scancodes (`0x4E`, `0x4B`) in button sectors (`0x00C0..0x011F`) without populated macro sequences. The MCU suspended physical clicks while tracking remained active. Furthermore, enabling stage 6 (bit 5 = 1 in byte 4) triggered an internal MCU fault.
 - **Fix**: Implemented `apply_og_compat()` / `sanitize_buttons()` in `src/profile.rs` to merge user custom DPI and RGB colors onto the verified working hardware baseline (`DailyUse.bin`) while masking stage 6 (`0xDF`).
 
-### Current Status: Side Buttons / Button Mapping Discrepancy
-- **Observation**: Profile flashing succeeds without locking the mouse, but custom button mappings (particularly the two side thumb buttons: Forward/Back, and profile-specific macros) are not yet accurately mapped in custom profiles.
-- **Reason**: The stock Delphi application writes complex mode-dependent button mapping matrices. Merging with `DailyUse.bin` baseline prevents mouse lockup, but applies standard 1:1 button actions rather than profile-specific custom side-button bindings.
+### Resolution of Side Buttons & Checksum Verification
+- **Cause of Side Button Discrepancy**: In `DailyUse.bin`, keys 2 and 5 were mapped to keyboard keys 'N' (`0x4E`) and 'K' (`0x4B`). When `DailyUse.bin` was previously used as a universal baseline, those bindings were unintentionally copied to other profiles.
+- **Decompiled Solution**:
+  - Reconstructed 12-key tables (4 bytes per key) for Office Mode (`0x00C0`) and Gaming Mode (`0x00F1`).
+  - Standard Forward is `0x01, 0x08, 0x00, 0x02` (Key 2) and standard Backward is `0x01, 0x10, 0x00, 0x00` (Key 5).
+  - Reverse-engineered exact Sunplus EEPROM checksum: `(sum(bytes) ^ 0x5A) & 0xFF` across Sector A (`0x00A4..0x00BF`), Office Table (`0x00C0..0x00F0`), Gaming Table (`0x00F1..0x0121`), and Footer Table (`0x03F8..0x03FF`).
+- **Profile Conversion Tooling**:
+  - Implemented `convert-profile` and `convert-all` subcommands in Rust CLI.
+  - Implemented standalone Python converter `scripts/convert_profile.py` supporting `--buttons standard` (default) and `--buttons keep`.
+  - All existing profiles in `profiles/` converted with 100% working buttons and verified checksums.
 
 ---
 
 ## 7. Workspace Tooling Implemented
 - `Cargo.toml`: Rust driver crate (`hidapi`, `clap`, `serde`).
 - `src/device.rs`: Low-level USB HID Feature Report protocol engine.
-- `src/profile.rs`: Binary profile parser, validator, and compatibility serializer.
+- `src/profile.rs`: Binary profile parser, validator, checksum calculator, and compatibility serializer.
 - `src/main.rs`: CLI commands:
   - `list`: Lists connected USB devices and highlights mouse.
-  - `inspect-profile <file.bin>`: Decodes DPI stages and RGB LED colors.
-  - `apply-profile <file.bin> [--og-compat]`: Flashes profile to mouse memory.
+  - `inspect-profile <file.bin>`: Decodes DPI stages, RGB LED colors, active mode, and button assignments.
+  - `apply-profile <file.bin> [--buttons standard|keep]`: Flashes profile to mouse memory.
   - `read-profile <out.bin>`: Reads current profile from mouse memory.
+  - `convert-profile <file.bin> [-o out.bin] [--buttons standard|keep]`: Converts profile to guaranteed working format.
+  - `convert-all [dir] [--buttons standard|keep]`: Batch converts all profiles in a directory.
+- `scripts/convert_profile.py`: Standalone cross-platform profile converter with zero dependencies.
 - `scripts/probe_windows.ps1`: Zero-dependency PowerShell script for device discovery.
 - `.gitignore`: Configured to exclude binaries, proprietary assets, and debug dumps.

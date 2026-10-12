@@ -7,8 +7,28 @@ use std::path::Path;
 pub const PROFILE_SIZE: usize = 2048;
 pub const PROFILE_MAGIC: [u8; 4] = [0x1b, 0xcf, 0x08, 0xb8];
 
+/// Standard 12-key button mapping (4 bytes per key, 48 bytes total) from factory firmware.
+/// Guaranteed functional mouse actions:
+/// Key 1: Left Click, Key 2: Forward (Side 1), Key 3: CPI Loop,
+/// Key 4: Right Click, Key 5: Backward (Side 2), Key 7: Middle Click
+pub const STANDARD_BUTTON_TABLE: [u8; 48] = [
+    0x01, 0x01, 0x00, 0x00, // Key 1: Left Click
+    0x01, 0x08, 0x00, 0x02, // Key 2: Forward (Side Button 1)
+    0x06, 0x92, 0x00, 0x1e, // Key 3: CPI Loop
+    0x01, 0x02, 0x00, 0x00, // Key 4: Right Click
+    0x01, 0x10, 0x00, 0x00, // Key 5: Backward (Side Button 2)
+    0x09, 0x01, 0x00, 0x00, // Key 6: Fn / Gaming
+    0x01, 0x04, 0x00, 0x00, // Key 7: Middle Click
+    0x09, 0x00, 0x00, 0x00, // Key 8: Fn / Office
+    0x09, 0x02, 0x00, 0x00, // Key 9: DPI+
+    0x00, 0x00, 0x00, 0x00, // Key 10
+    0x00, 0x00, 0x00, 0x00, // Key 11
+    0x00, 0x00, 0x00, 0x00, // Key 12
+];
+
 /// Verified 136-byte button table and mode flags (offsets 0x00A0..0x0128)
-/// from DailyUse.bin that ensures 100% working Left/Right/Middle/Forward/Back/DPI clicks.
+/// from DailyUse.bin that ensures working Left/Right/Middle clicks.
+#[allow(dead_code)]
 pub const VERIFIED_BUTTON_BLOCK: [u8; 136] = [
     0x00, 0x00, 0x00, 0x42, 0x01, 0x87, 0x01, 0x00, 0x0f, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xea,
@@ -22,6 +42,7 @@ pub const VERIFIED_BUTTON_BLOCK: [u8; 136] = [
 ];
 
 /// Verified 8-byte sector footer (offsets 0x03F8..0x0400)
+#[allow(dead_code)]
 pub const VERIFIED_FOOTER: [u8; 8] = [
     0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x51,
 ];
@@ -42,11 +63,24 @@ pub struct DpiStage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ButtonBinding {
+    pub key_number: u8,
+    pub key_type: u8,
+    pub param1: u8,
+    pub param2: u8,
+    pub param3: u8,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MouseProfile {
     pub raw: Vec<u8>,
     pub device_name: String,
     pub active_stages_mask: u8,
     pub dpi_stages: Vec<DpiStage>,
+    pub is_gaming_mode: bool,
+    pub office_buttons: Vec<ButtonBinding>,
+    pub gaming_buttons: Vec<ButtonBinding>,
 }
 
 impl MouseProfile {
@@ -106,15 +140,149 @@ impl MouseProfile {
             });
         }
 
+        let is_gaming_mode = raw[0x00a4] == 0x01;
+
+        let mut office_buttons = Vec::new();
+        for k in 0..12 {
+            let start = 0x00c0 + k * 4;
+            office_buttons.push(Self::decode_button(k as u8 + 1, &raw[start..start + 4]));
+        }
+
+        let mut gaming_buttons = Vec::new();
+        for k in 0..12 {
+            let start = 0x00f1 + k * 4;
+            gaming_buttons.push(Self::decode_button(k as u8 + 1, &raw[start..start + 4]));
+        }
+
         Ok(Self {
             raw,
             device_name,
             active_stages_mask,
             dpi_stages,
+            is_gaming_mode,
+            office_buttons,
+            gaming_buttons,
         })
     }
 
+    fn decode_button(key_num: u8, slice: &[u8]) -> ButtonBinding {
+        let key_type = slice[0];
+        let p1 = slice[1];
+        let p2 = slice[2];
+        let p3 = slice[3];
+        let desc = match key_type {
+            0x01 => match p1 {
+                0x01 => "Left Click".to_string(),
+                0x02 => "Right Click".to_string(),
+                0x04 => "Middle Click".to_string(),
+                0x08 => "Forward (Side 1)".to_string(),
+                0x10 => "Backward (Side 2)".to_string(),
+                other => format!("Mouse Button 0x{:02x}", other),
+            },
+            0x02 => {
+                let mod_str = match p1 {
+                    0x01 => "Ctrl+",
+                    0x02 => "Shift+",
+                    0x04 => "Alt+",
+                    0x08 => "Win+",
+                    0x0a => "Ctrl+Alt+",
+                    _ => "",
+                };
+                let key_name = match p2 {
+                    0x04..=0x1d => format!("{}", (b'A' + (p2 - 0x04)) as char),
+                    0x1e..=0x27 => format!("{}", (b'1' + (p2 - 0x1e)) as char),
+                    0x28 => "Enter".to_string(),
+                    0x29 => "Esc".to_string(),
+                    0x2a => "Backspace".to_string(),
+                    0x2b => "Tab".to_string(),
+                    0x2c => "Space".to_string(),
+                    _ => format!("0x{:02x}", p2),
+                };
+                format!("Key: {}{}", mod_str, key_name)
+            }
+            0x03 => match p2 {
+                0xb5 => "Media: Next Track".to_string(),
+                0xb6 => "Media: Prev Track".to_string(),
+                0xcd => "Media: Play/Pause".to_string(),
+                0xe9 => "Media: Vol+".to_string(),
+                0xea => "Media: Vol-".to_string(),
+                other => format!("Consumer 0x{:02x}", other),
+            },
+            0x06 => "CPI Loop".to_string(),
+            0x07 => "ACPI / Power".to_string(),
+            0x08 => "CPI Switch".to_string(),
+            0x09 => match p1 {
+                0x00 => "Office Mode".to_string(),
+                0x01 => "Gaming Mode".to_string(),
+                0x02 => "CPI +".to_string(),
+                other => format!("Fn 0x{:02x}", other),
+            },
+            0x00 => "None".to_string(),
+            other => format!("Type 0x{:02x}", other),
+        };
+
+        ButtonBinding {
+            key_number: key_num,
+            key_type,
+            param1: p1,
+            param2: p2,
+            param3: p3,
+            description: desc,
+        }
+    }
+
+    /// Calculate Delphi/Sunplus firmware checksum: (sum(bytes) ^ 0x5a) & 0xff
+    pub fn calculate_checksum(slice: &[u8]) -> u8 {
+        let sum: u32 = slice.iter().map(|&b| b as u32).sum();
+        ((sum ^ 0x5a) & 0xff) as u8
+    }
+
+    /// Recalculate and update all 4 sector checksums across profile memory
+    pub fn recalculate_checksums(&mut self) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        self.raw[0x00bf] = Self::calculate_checksum(&self.raw[0x00a4..0x00bf]);
+        self.raw[0x00f0] = Self::calculate_checksum(&self.raw[0x00c0..0x00f0]);
+        self.raw[0x0121] = Self::calculate_checksum(&self.raw[0x00f1..0x0121]);
+        self.raw[0x03ff] = Self::calculate_checksum(&self.raw[0x03f8..0x03ff]);
+    }
+
+    /// Apply 100% standard mouse button actions (Left, Right, Middle, Forward, Backward, CPI Loop)
+    /// to both Office Mode and Gaming Mode tables, while recalculating checksums.
+    pub fn apply_standard_buttons(&mut self) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        self.raw[0x00c0..0x00f0].copy_from_slice(&STANDARD_BUTTON_TABLE);
+        self.raw[0x00f1..0x0121].copy_from_slice(&STANDARD_BUTTON_TABLE);
+
+        // Hardware safety registers
+        self.raw[4] = 0xdf;      // 5 active DPI stages, mask stage 6 MCU lockup
+        self.raw[0x00a4] = 0x01; // Force Gaming Mode (active button matrix)
+        self.raw[0x00a8] = 0x0f; // Active button mask
+        self.raw[0x00aa] = 0x18; // Feature report enable
+        self.raw[0x03f9] = 0x04; // Clear 0x80 button lockout flag in MCU footer
+
+        self.recalculate_checksums();
+    }
+
+    /// Keep profile's own native button bindings, ensure Stage 6 mask is safe (0xDF),
+    /// clear hardware lockout flags, and recalculate checksums.
+    pub fn apply_safe_profile(&mut self) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        self.raw[4] = 0xdf;      // safe 5 active DPI stages
+        self.raw[0x00a4] = 0x01; // Force Gaming Mode
+        self.raw[0x00a8] = 0x0f;
+        self.raw[0x00aa] = 0x18;
+        self.raw[0x03f9] = 0x04; // Clear 0x80 button lockout flag
+        self.recalculate_checksums();
+    }
+
     /// Check if the button configuration matches verified working standard mouse clicks
+    #[allow(dead_code)]
     pub fn is_button_table_valid(&self) -> bool {
         if self.raw.len() != PROFILE_SIZE {
             return false;
@@ -156,6 +324,7 @@ impl MouseProfile {
 
     /// Sanitize button table and mode flags with the verified standard working template.
     /// Preserves all user DPI stages, DPI levels, LED colors, and lighting effects.
+    #[allow(dead_code)]
     pub fn sanitize_buttons(&mut self) -> bool {
         if self.raw.len() != PROFILE_SIZE {
             return false;

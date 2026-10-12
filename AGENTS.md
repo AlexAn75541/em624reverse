@@ -82,28 +82,37 @@ Byte 1..7: 7-byte raw payload slice from profile memory
 
 ---
 
-## 5. Button Mapping Architecture & Root Cause of Dead Buttons
+## 5. Button Mapping Architecture & Exact Checksum Formula
 
-### Root Cause Analysis
-Binary differential analysis between working (`DailyUse.bin`) and non-working profiles (`Valorant+CS2.bin`, `Bodycam.bin`, `LN.bin`, etc.) revealed:
-1. **Identical Hardware Payload**: All profiles share 2005 out of 2048 identical bytes. The macro bytecode bank (`0x0400..0x0800`, 1024 bytes) is 100% identical across all files.
-2. **Button Table Scrambling**:
-   - `0x00C0..0x00EF`: Office mode button table (Key1 to Key6, 8 bytes each).
-   - `0x00F0..0x011F`: Gaming mode button table (Key1 to Key6, 8 bytes each).
-   - `0x0120..0x0122`: Mode identifier and checksum.
-   - In `DailyUse.bin`, Key1 (`0x00C0`) is mapped to standard left click (`01 01 00 00`), Key2 (`0x00C8`) to right click (`01 02 00 00`), Key3 (`0x00D0`) to middle click (`01 04 00 00`), and Key8 (`0x00E0`) to DPI loop (`08 00 00 00`).
-   - In non-working profiles, custom key assignments or macro triggers (e.g. `01 08 00 02`, `01 10 00 00`, `09 01 00 00`) pointed to unpopulated macro sequences. The Sunplus MCU firmware dropped all physical click events because it was trying to evaluate non-existent macro tables.
-3. **Sensor Motion Independence**: Optical tracking and USB cursor packets (`MI_00` / EP `0x81`) run directly off the sensor hardware DSP, so cursor movement continued working even while the MCU button handler was dead.
+### Exact 12-Key Table Structure (4 Bytes per Key, 48 Bytes Table)
+Decompilation of `EM624 Mouse.exe` (`0x0059bc8c`, `0x005a0000`, `0x005606a8`) revealed that button configurations are arranged as arrays of 12 keys (4 bytes each):
+- **Office Mode Table**: `0x00C0..0x00EF` (48 bytes) followed by 1-byte checksum at `0x00F0`.
+- **Gaming Mode Table**: `0x00F1..0x0120` (48 bytes) followed by 1-byte checksum at `0x0121`.
+- **Active Mode Selector**: Offset `0x00A4` (`0x00` = Office Mode, `0x01` = Gaming Mode).
 
-### The Fix: Invariant Button Sanitization
-All valid custom profiles are differentiated **ONLY** by:
-- Offset `0x0004`: Active DPI stages mask (e.g. `0xDF` = 5 stages, `0xFF` = 6 stages).
-- Offsets `0x002C..0x002E`: Custom DPI level stages (e.g. 1200, 1600, 2000, 3600, 4800, 5200 DPI).
-- Offsets `0x003C..0x0053`: Custom RGB colors per DPI stage.
+#### Key Record Layout: `[Type, Param1, Param2, Param3]`
+- `0x01` (Mouse): Param1 `0x01` = Left, `0x02` = Right, `0x04` = Middle, `0x08` = Forward (Side 1), `0x10` = Backward (Side 2).
+- `0x02` (Keyboard): Param1 = Modifier (`0x01`=Ctrl, `0x02`=Shift, `0x04`=Alt, `0x08`=Win), Param2 = Keycode.
+- `0x03` (Media / Consumer): Param2 `0xb5` = Next Track, `0xcd` = Play/Pause, `0xe9` = Vol+, `0xea` = Vol-.
+- `0x06` (CPI): Param1 `0x12` or `0x92` = CPI Loop.
+- `0x09` (Fn): Param1 `0x00` = Office Mode, `0x01` = Gaming Mode, `0x02` = CPI+.
 
-The driver now enforces the **Verified Standard Button Template** (`VERIFIED_BUTTON_BLOCK` at `0x00A0..0x0128` and `VERIFIED_FOOTER` at `0x03F8..0x0400`), guaranteeing that:
-- Left, Right, Middle, Scroll, Forward, Back, and DPI Loop always function.
-- All user-configured DPI levels and RGB LED color stages are 100% preserved.
+#### Exact Firmware Checksum Algorithm
+The MCU validates four distinct profile sectors using the formula:
+```
+Checksum = (Sum_of_bytes ^ 0x5A) & 0xFF
+```
+1. **Sector A (`0x00A4..0x00BF`)**: Checksum stored at `0x00BF`.
+2. **Office Table (`0x00C0..0x00F0`)**: Checksum stored at `0x00F0`.
+3. **Gaming Table (`0x00F1..0x0121`)**: Checksum stored at `0x0121`.
+4. **Footer Table (`0x03F8..0x03FF`)**: Checksum stored at `0x03FF`.
+
+### Why Side Buttons Were Previously Mismapped
+1. In `DailyUse.bin`, the side buttons were custom-bound to keyboard keys `0x4E` ('N') and `0x4B` ('K').
+2. When the initial compatibility patch cloned the `DailyUse.bin` button block onto all profiles, it forced those 'N' and 'K' bindings onto every game profile, breaking standard Forward and Back.
+3. The driver now provides two clean modes:
+   - `--buttons standard` (default): Applies factory standard mouse actions (Left, Right, Middle, Forward Side 1, Back Side 2, CPI Loop) to both Office and Gaming modes.
+   - `--buttons keep`: Preserves the profile's own authentic keybindings (e.g. Spacebar and Q for Valorant) while safely masking Stage 6 (`active_stages_mask &= 0xDF`) and verifying all four checksums.
 
 ---
 
@@ -158,11 +167,14 @@ cargo run -- apply-profile profiles/DailyUse.bin
 - [x] Handled MCU EEPROM flash burn and bus reset response code (`0x0000001F`).
 - [x] Decoded 2048-byte profile binary format (DPI stages, colors, active stage masks).
 - [x] Successfully write custom DPI levels and custom RGB LED colors into mouse hardware.
+- [x] Decoded exact 12-key button mapping tables (Office mode `0x00C0` and Gaming mode `0x00F1`).
+- [x] Reverse-engineered exact Sunplus checksum algorithm: `(sum ^ 0x5a) & 0xff`.
+- [x] Added `--buttons standard` (restoring true Forward/Back side buttons) and `--buttons keep` (preserving profile-specific keybindings).
+- [x] Cleaned repository structure (all `.bin` debug dumps consolidated into `dumps/`, `.gitignore` updated).
 
-### Known Issue: Button & Side Button Mapping
-- **Observed Behavior**: While profile flashing succeeds and DPI/RGB stages update, custom button mappings (particularly the two side thumb buttons: Forward/Back, and certain secondary buttons) are not properly mapped as expected when switching between different game profiles.
-- **Root Cause & Technical Detail**: The stock Delphi application manages multiple button state tables simultaneously (`Office Mode` at `0x00C0..0x00EF`, `Gaming Mode` at `0x00F0..0x011F`, and action masks). Splicing with the `DailyUse.bin` baseline protects physical clicks from being disabled, but it sets default standard button actions rather than each profile's tailored side button bindings.
-- **Future Milestone**: Reverse engineer the full button bytecode dispatch matrix from `Skin.ini` and `0x0059bc8c` to support arbitrary button remapping and macro key assignments without freezing physical input.
+### Known Issue: Fixed & Resolved
+- **Previous Side Button Issue**: Previously, side buttons were triggering 'N' and 'K' because `DailyUse.bin` was used as an inflexible baseline.
+- **Resolution**: Added `--buttons standard` (default) which writes standard HID mouse Forward (`0x08`) and Backward (`0x10`) to keys 2 and 5, while recalculating all checksums with `(sum ^ 0x5A) & 0xFF`. Users can also pass `--buttons keep` to retain profile-specific game keys (like Space and Q in Valorant).
 
 ---
 

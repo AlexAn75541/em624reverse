@@ -40,30 +40,55 @@ cargo build
 ```
 
 ### 3. Apply a Profile to the Mouse
+
+#### A. Standard Gaming Setup (Recommended: Left, Right, Middle, Forward, Back, CPI Loop)
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\DailyUse.bin
+.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin
 ```
-Or apply a gaming profile with full compatibility mode:
+*(By default, `--buttons standard` is active: preserves your custom DPI stages and RGB LED colors while restoring authentic Browser Forward and Backward side buttons!)*
+
+#### B. Preserve Profile's Custom Game Bindings (e.g. Spacebar & Q in Valorant)
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin --og-compat
+.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin --buttons keep
 ```
 
-### 4. Read Active Profile from Mouse Memory
+#### C. Restore Daily Use Bindings
+```powershell
+.\target\debug\em624.exe apply-profile profiles\DailyUse.bin --buttons keep
+```
+
+### 4. Live Hardware Diagnostic (Probe Mouse State)
+```powershell
+.\target\debug\em624.exe probe
+```
+*Queries the mouse directly over USB HID and prints a live diagnostic report of active DPI levels, RGB LED colors, active profile mode, button mappings, and hardware safety registers.*
+
+### 5. Convert Profiles from Stock App
+```powershell
+# Convert single profile:
+.\target\debug\em624.exe convert-profile profiles\WarThunder.bin --buttons standard
+
+# Convert all profiles in a directory:
+.\target\debug\em624.exe convert-all profiles --buttons standard
+```
+
+### 6. Read Active Profile from Mouse Memory
 ```powershell
 .\target\debug\em624.exe read-profile backup.bin
 ```
 
 ---
 
-## Current Status & Known Issues
+## Current Status
 
 - **DPI & RGB LED Control**: Fully functional. Custom DPI stages and RGB colors write cleanly to mouse hardware.
 - **Button Mapping**:
-  - Profiles are applied safely without disabling physical mouse clicks or freezing the MCU.
-  - **Known Issue**: Custom button mappings (specifically the two side thumb buttons: Forward/Back, and profile-specific macros) are not yet accurately mapped when switching between non-default profiles.
-  - **Reason**: The stock Delphi application writes complex mode-dependent button matrices (`Office Mode` vs `Gaming Mode` at `0x00C0..0x011F`).
+  - **Standard Mode (`--buttons standard`)**: Default. Flashes 100% verified standard mouse actions (Left Click, Right Click, Middle Click, Forward Side Button, Backward Side Button, CPI Loop) on both Office and Gaming profiles.
+  - **Keep Mode (`--buttons keep`)**: Retains custom keyboard shortcuts or media actions assigned to side buttons in each profile file, while ensuring safe Stage 6 masking and recalculated checksums.
+  - **Checksum Engine**: Complete reverse-engineered `(sum ^ 0x5A) & 0xFF` algorithm across all profile sectors.
 
 For in-depth analysis and technical details, see:
+- [`MIGRATION.md`](./MIGRATION.md): Migration guide from official vendor software (`EM624 Mouse.exe`).
 - [`AGENTS.md`](./AGENTS.md): Full technical specification, decompiled assembly addresses, and recovery procedure.
 - [`SESSION_NOTES.md`](./SESSION_NOTES.md): Comprehensive session log, protocol discoveries, challenges, and solutions.
 - [`PLAN.md`](./PLAN.md): Development roadmap and milestones.
