@@ -12,6 +12,7 @@ enum Tab {
     OfficeMode,
     Advanced,
     Converter,
+    Settings,
 }
 
 pub struct Em624App {
@@ -22,6 +23,8 @@ pub struct Em624App {
     connected_info: String,
     file_path: Option<PathBuf>,
     hovered_button: Option<usize>, // 1..=7
+    ui_scale: f32,
+    mouse_texture: Option<egui::TextureHandle>,
     // Converter state
     convert_input_path: Option<PathBuf>,
     convert_log: String,
@@ -40,6 +43,8 @@ impl Default for Em624App {
             connected_info: "No device connected".to_string(),
             file_path: None,
             hovered_button: None,
+            ui_scale: 1.15, // Default comfortably scaled for high-DPI displays
+            mouse_texture: None,
             convert_input_path: None,
             convert_log: "Select a stock .bin profile file to convert into safe .em624 format."
                 .to_string(),
@@ -50,17 +55,29 @@ impl Default for Em624App {
 impl Em624App {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::default();
-        app.try_connect_silent();
+        app.check_connection();
         app
     }
 
-    fn try_connect_silent(&mut self) {
-        if let Ok(api) = HidApi::new() {
-            if let Ok(dev) = Em624Device::open_auto(&api) {
-                self.device_connected = true;
-                self.connected_info =
-                    format!("E-DRA EM624 (VID 0x{:04x}, PID 0x{:04x})", dev.vid, dev.pid);
-                self.status_message = "Connected to mouse via USB HID (MI_01&Col04).".to_string();
+    fn check_connection(&mut self) {
+        match HidApi::new() {
+            Ok(api) => match Em624Device::open_auto(&api) {
+                Ok(dev) => {
+                    self.device_connected = true;
+                    self.connected_info =
+                        format!("E-DRA EM624 (VID 0x{:04x}, PID 0x{:04x})", dev.vid, dev.pid);
+                    self.status_message = format!("Mouse connected and responsive on Interface 1 Col04 (VID 0x{:04x}, PID 0x{:04x}).", dev.vid, dev.pid);
+                }
+                Err(e) => {
+                    self.device_connected = false;
+                    self.connected_info = "Not detected".to_string();
+                    self.status_message =
+                        format!("Mouse not found: {}. Please check USB connection.", e);
+                }
+            },
+            Err(e) => {
+                self.device_connected = false;
+                self.status_message = format!("HID API Error: {}", e);
             }
         }
     }
@@ -128,17 +145,36 @@ impl Em624App {
             }
         }
     }
+
+    fn ensure_texture(&mut self, ctx: &egui::Context) {
+        if self.mouse_texture.is_none() {
+            let png_bytes = include_bytes!("../damouse.png");
+            if let Ok(img) = image::load_from_memory(png_bytes) {
+                let rgba = img.to_rgba8();
+                let size = [rgba.width() as usize, rgba.height() as usize];
+                let pixels = rgba.into_raw();
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
+                let texture =
+                    ctx.load_texture("mouse_photo", color_image, egui::TextureOptions::LINEAR);
+                self.mouse_texture = Some(texture);
+            }
+        }
+    }
 }
 
 impl eframe::App for Em624App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Apply overall UI scale
+        ctx.set_zoom_factor(self.ui_scale);
         ctx.set_visuals(egui::Visuals::dark());
+
+        // Ensure mouse picture is loaded
+        self.ensure_texture(ctx);
 
         // Top Navigation Bar
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("🖱").size(22.0));
                 ui.heading(
                     egui::RichText::new("E-DRA EM624")
                         .strong()
@@ -151,6 +187,10 @@ impl eframe::App for Em624App {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Check Connection").clicked() {
+                        self.check_connection();
+                    }
+
                     if self.device_connected {
                         ui.label(
                             egui::RichText::new("● CONNECTED")
@@ -158,28 +198,27 @@ impl eframe::App for Em624App {
                                 .strong(),
                         );
                     } else {
-                        if ui.button("Connect Mouse").clicked() {
-                            self.try_connect_silent();
-                        }
                         ui.label(
                             egui::RichText::new("○ DISCONNECTED")
-                                .color(Color32::from_rgb(255, 71, 87)),
+                                .color(Color32::from_rgb(255, 71, 87))
+                                .strong(),
                         );
                     }
                 });
             });
             ui.add_space(6.0);
 
-            // Tab Buttons with icons
+            // Tab Navigation with plain clean text
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.active_tab, Tab::GameMode, "🎮 Game Mode");
-                ui.selectable_value(&mut self.active_tab, Tab::OfficeMode, "💼 Office Mode");
+                ui.selectable_value(&mut self.active_tab, Tab::GameMode, "Game Mode");
+                ui.selectable_value(&mut self.active_tab, Tab::OfficeMode, "Office Mode");
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Advanced,
-                    "⚡ Advanced (DPI & Sensor)",
+                    "Advanced (DPI & Sensor)",
                 );
-                ui.selectable_value(&mut self.active_tab, Tab::Converter, "🔄 Profile Converter");
+                ui.selectable_value(&mut self.active_tab, Tab::Converter, "Profile Converter");
+                ui.selectable_value(&mut self.active_tab, Tab::Settings, "App Settings");
             });
             ui.add_space(6.0);
         });
@@ -188,13 +227,13 @@ impl eframe::App for Em624App {
         egui::TopBottomPanel::bottom("bottom_toolbar").show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button("📥 Read from Mouse").clicked() {
+                if ui.button("Read from Mouse").clicked() {
                     self.read_from_mouse();
                 }
 
                 if ui
                     .button(
-                        egui::RichText::new("⚡ Flash to Mouse")
+                        egui::RichText::new("Flash to Mouse")
                             .strong()
                             .color(Color32::from_rgb(0, 242, 254)),
                     )
@@ -205,7 +244,7 @@ impl eframe::App for Em624App {
 
                 ui.separator();
 
-                if ui.button("📂 Load Profile").clicked() {
+                if ui.button("Load Profile").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("EM624 Profiles", &["em624", "bin"])
                         .pick_file()
@@ -218,7 +257,7 @@ impl eframe::App for Em624App {
                     }
                 }
 
-                if ui.button("💾 Save Profile").clicked() {
+                if ui.button("Save Profile").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Safe EM624 Profile", &["em624"])
                         .set_file_name("custom_profile.em624")
@@ -250,6 +289,7 @@ impl eframe::App for Em624App {
             Tab::OfficeMode => self.render_button_mode_tab(ui, false),
             Tab::Advanced => self.render_advanced_tab(ui),
             Tab::Converter => self.render_converter_tab(ui),
+            Tab::Settings => self.render_settings_tab(ui),
         });
     }
 }
@@ -257,7 +297,7 @@ impl eframe::App for Em624App {
 impl Em624App {
     fn render_button_mode_tab(&mut self, ui: &mut egui::Ui, is_gaming: bool) {
         ui.horizontal(|ui| {
-            // Left Column: Button List (Fixed 340px width to prevent pushing center diagram)
+            // Left Column: Button List with explicit width 340px
             ui.allocate_ui_with_layout(
                 Vec2::new(340.0, ui.available_height()),
                 egui::Layout::top_down(egui::Align::Min),
@@ -269,7 +309,7 @@ impl Em624App {
                         "Office Mode Bindings"
                     });
                     ui.label(
-                        egui::RichText::new("Hover buttons to highlight switch on mouse:")
+                        egui::RichText::new("Hover any button to highlight switch on mouse:")
                             .small()
                             .color(Color32::from_rgb(140, 160, 190)),
                     );
@@ -283,22 +323,22 @@ impl Em624App {
 
                     self.hovered_button = None;
 
-                    // Display Buttons 1 through 7
+                    // Display Buttons 1 through 7 with explicit numbers [1]..[7]
                     let display_order = [
-                        (1, "① Left Click"),
-                        (4, "② Right Click"),
-                        (7, "③ Middle Click"),
-                        (2, "④ Forward (Side 1)"),
-                        (5, "⑤ Backward (Side 2)"),
-                        (9, "⑥ DPI + (Top)"),
-                        (8, "⑦ DPI - (Back)"),
+                        (1, "[1] Left Click"),
+                        (4, "[2] Right Click"),
+                        (7, "[3] Middle Click"),
+                        (2, "[4] Forward (Side 1)"),
+                        (5, "[5] Backward (Side 2)"),
+                        (9, "[6] DPI + (Top Front)"),
+                        (8, "[7] DPI - (Top Back)"),
                     ];
 
                     for (slot_idx, label) in display_order {
                         if let Some(btn) = buttons.get(slot_idx - 1) {
                             let is_highlighted = self.hovered_button == Some(slot_idx);
                             let bg_color = if is_highlighted {
-                                Color32::from_rgba_premultiplied(0, 242, 254, 25)
+                                Color32::from_rgba_premultiplied(0, 242, 254, 30)
                             } else {
                                 Color32::from_rgb(20, 26, 38)
                             };
@@ -341,12 +381,12 @@ impl Em624App {
 
             ui.separator();
 
-            // Right Column: Centered Hardware Mouse Diagram
+            // Right Column: Centered Hardware Mouse Picture with Badges [1]..[7]
             ui.allocate_ui_with_layout(
                 Vec2::new(ui.available_width(), ui.available_height()),
                 egui::Layout::top_down(egui::Align::Center),
                 |ui| {
-                    ui.add_space(10.0);
+                    ui.add_space(8.0);
                     ui.label(
                         egui::RichText::new("E-DRA EM624 HARDWARE SWITCH MATRIX")
                             .strong()
@@ -354,8 +394,8 @@ impl Em624App {
                     );
                     ui.add_space(6.0);
 
-                    // Draw custom ergonomic vector mouse with glowing badges
-                    draw_mouse_diagram(ui, self.hovered_button);
+                    // Render actual mouse photo overlay with badges
+                    self.render_mouse_photo(ui);
 
                     ui.add_space(8.0);
                     ui.label(
@@ -370,9 +410,71 @@ impl Em624App {
         });
     }
 
+    fn render_mouse_photo(&self, ui: &mut egui::Ui) {
+        let display_size = Vec2::new(260.0, 310.0);
+        let (rect, _response) = ui.allocate_exact_size(display_size, egui::Sense::hover());
+        let painter = ui.painter_at(rect);
+
+        // If texture loaded, draw the actual photo
+        if let Some(texture) = &self.mouse_texture {
+            painter.image(
+                texture.id(),
+                rect,
+                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                Color32::WHITE,
+            );
+        } else {
+            // Fallback dark placeholder
+            painter.rect_filled(rect, 10.0, Color32::from_rgb(20, 26, 38));
+        }
+
+        let cx = rect.center().x;
+        let cy = rect.center().y;
+
+        // Position badges [1] through [7] directly over actual switches on the mouse image
+        let badges = [
+            (1, Pos2::new(cx - 38.0, cy - 65.0), "[1]"), // Button 1: Left Click
+            (4, Pos2::new(cx + 38.0, cy - 65.0), "[2]"), // Button 2: Right Click
+            (7, Pos2::new(cx, cy - 90.0), "[3]"),        // Button 3: Wheel Click
+            (2, Pos2::new(cx - 80.0, cy - 25.0), "[4]"), // Button 4: Side Forward
+            (5, Pos2::new(cx - 80.0, cy + 12.0), "[5]"), // Button 5: Side Backward
+            (9, Pos2::new(cx, cy - 28.0), "[6]"),        // Button 6: DPI +
+            (8, Pos2::new(cx, cy - 2.0), "[7]"),         // Button 7: DPI -
+        ];
+
+        for (slot_idx, pos, text) in badges {
+            let is_hovered = self.hovered_button == Some(slot_idx);
+            let badge_bg = if is_hovered {
+                Color32::from_rgb(0, 242, 254)
+            } else {
+                Color32::from_rgba_premultiplied(10, 15, 25, 220)
+            };
+            let text_color = if is_hovered {
+                Color32::BLACK
+            } else {
+                Color32::from_rgb(0, 242, 254)
+            };
+
+            let badge_rect = Rect::from_center_size(pos, Vec2::new(24.0, 18.0));
+            painter.rect_filled(badge_rect, 4.0, badge_bg);
+            painter.rect_stroke(
+                badge_rect,
+                4.0,
+                Stroke::new(1.5_f32, Color32::from_rgb(0, 242, 254)),
+            );
+            painter.text(
+                pos,
+                egui::Align2::CENTER_CENTER,
+                text,
+                egui::FontId::monospace(11.0),
+                text_color,
+            );
+        }
+    }
+
     fn render_advanced_tab(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
-        ui.heading("⚡ Optical Sensor & DPI Stages (SPCP6662)");
+        ui.heading("Optical Sensor & DPI Stages (SPCP6662)");
         ui.label(
             egui::RichText::new("14 calibrated hardware resolution steps (200 to 10,000 DPI)")
                 .small()
@@ -453,7 +555,7 @@ impl Em624App {
         ui.separator();
         ui.add_space(10.0);
 
-        ui.heading("⏱️ USB Polling Rate (Report Speed)");
+        ui.heading("USB Polling Rate (Report Speed)");
         ui.horizontal(|ui| {
             ui.label("Selected Rate:");
             ui.label(
@@ -467,7 +569,7 @@ impl Em624App {
 
     fn render_converter_tab(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
-        ui.heading("🔄 Stock Profile (.bin) Migration Tool");
+        ui.heading("Stock Profile (.bin) Migration Tool");
         ui.label(
             egui::RichText::new("Convert vendor exported profiles into safe modern .em624 files with full button preservation.")
                 .small()
@@ -477,7 +579,7 @@ impl Em624App {
 
         ui.group(|ui| {
             ui.horizontal(|ui| {
-                if ui.button("📂 Select .bin File to Convert...").clicked() {
+                if ui.button("Select .bin File to Convert...").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Vendor Profiles", &["bin"])
                         .pick_file()
@@ -510,115 +612,85 @@ impl Em624App {
             ui.monospace(&self.convert_log);
         });
     }
-}
 
-/// Draw a centered, proportioned vector mouse with numbered badges matching physical switch routing
-fn draw_mouse_diagram(ui: &mut egui::Ui, hovered_slot: Option<usize>) {
-    let desired_size = Vec2::new(260.0, 320.0);
-    let (rect, _response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
-    let painter = ui.painter_at(rect);
-
-    let cx = rect.center().x;
-    let cy = rect.center().y;
-
-    // Mouse Body: Ergonomic rounded shape
-    let body_rect = Rect::from_center_size(Pos2::new(cx, cy + 10.0), Vec2::new(140.0, 240.0));
-    painter.rect_filled(body_rect, 60.0, Color32::from_rgb(22, 28, 40));
-    painter.rect_stroke(
-        body_rect,
-        60.0,
-        Stroke::new(2.0_f32, Color32::from_rgb(0, 242, 254)),
-    );
-
-    // Center divider between Left & Right clicks
-    painter.line_segment(
-        [Pos2::new(cx, cy - 110.0), Pos2::new(cx, cy - 30.0)],
-        Stroke::new(2.0_f32, Color32::from_rgb(36, 48, 70)),
-    );
-
-    // Scroll Wheel Slot (Button 3)
-    let wheel_rect = Rect::from_center_size(Pos2::new(cx, cy - 65.0), Vec2::new(18.0, 42.0));
-    let wheel_active = hovered_slot == Some(7);
-    painter.rect_filled(
-        wheel_rect,
-        6.0,
-        if wheel_active {
-            Color32::from_rgb(0, 242, 254)
-        } else {
-            Color32::from_rgb(46, 58, 80)
-        },
-    );
-    painter.rect_stroke(
-        wheel_rect,
-        6.0,
-        Stroke::new(1.5_f32, Color32::from_rgb(0, 242, 254)),
-    );
-
-    // Top DPI Buttons (Buttons 6 & 7)
-    let dpi_top_rect = Rect::from_center_size(Pos2::new(cx, cy - 25.0), Vec2::new(16.0, 18.0));
-    let dpi_bot_rect = Rect::from_center_size(Pos2::new(cx, cy - 2.0), Vec2::new(16.0, 18.0));
-    painter.rect_filled(dpi_top_rect, 3.0, Color32::from_rgb(36, 48, 70));
-    painter.rect_filled(dpi_bot_rect, 3.0, Color32::from_rgb(36, 48, 70));
-
-    // Left Side Thumb Buttons (Buttons 4 & 5)
-    let side_fwd_rect =
-        Rect::from_center_size(Pos2::new(cx - 72.0, cy - 25.0), Vec2::new(8.0, 28.0));
-    let side_back_rect =
-        Rect::from_center_size(Pos2::new(cx - 72.0, cy + 10.0), Vec2::new(8.0, 28.0));
-    painter.rect_filled(side_fwd_rect, 3.0, Color32::from_rgb(0, 242, 254));
-    painter.rect_filled(side_back_rect, 3.0, Color32::from_rgb(0, 242, 254));
-
-    // Palm Rest Ambient RGB Glow
-    let palm_logo = Rect::from_center_size(Pos2::new(cx, cy + 65.0), Vec2::new(32.0, 20.0));
-    painter.rect_filled(
-        palm_logo,
-        10.0,
-        Color32::from_rgba_premultiplied(0, 242, 254, 40),
-    );
-    painter.text(
-        Pos2::new(cx, cy + 65.0),
-        egui::Align2::CENTER_CENTER,
-        "E-DRA",
-        egui::FontId::proportional(11.0),
-        Color32::from_rgb(0, 242, 254),
-    );
-
-    // Numbered Badge Draw Helper: ① Left, ② Right, ③ Wheel, ④ Forward, ⑤ Backward, ⑥ DPI+, ⑦ DPI-
-    let badges = [
-        (1, Pos2::new(cx - 40.0, cy - 65.0), "①"),
-        (4, Pos2::new(cx + 40.0, cy - 65.0), "②"),
-        (7, Pos2::new(cx, cy - 92.0), "③"),
-        (2, Pos2::new(cx - 96.0, cy - 25.0), "④"),
-        (5, Pos2::new(cx - 96.0, cy + 10.0), "⑤"),
-        (9, Pos2::new(cx + 28.0, cy - 25.0), "⑥"),
-        (8, Pos2::new(cx + 28.0, cy - 2.0), "⑦"),
-    ];
-
-    for (slot_idx, pos, text) in badges {
-        let is_hovered = hovered_slot == Some(slot_idx);
-        let badge_bg = if is_hovered {
-            Color32::from_rgb(0, 242, 254)
-        } else {
-            Color32::from_rgb(14, 20, 32)
-        };
-        let text_color = if is_hovered {
-            Color32::BLACK
-        } else {
-            Color32::from_rgb(0, 242, 254)
-        };
-
-        painter.circle_filled(pos, 11.0, badge_bg);
-        painter.circle_stroke(
-            pos,
-            11.0,
-            Stroke::new(1.5_f32, Color32::from_rgb(0, 242, 254)),
+    fn render_settings_tab(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(6.0);
+        ui.heading("Application Settings & Display Scaling");
+        ui.label(
+            egui::RichText::new(
+                "Configure interface scaling, hardware diagnostics, and preferences.",
+            )
+            .small()
+            .color(Color32::from_rgb(140, 160, 190)),
         );
-        painter.text(
-            pos,
-            egui::Align2::CENTER_CENTER,
-            text,
-            egui::FontId::proportional(13.0),
-            text_color,
-        );
+        ui.add_space(14.0);
+
+        ui.group(|ui| {
+            ui.heading("Interface Scale Factor");
+            ui.label("Adjust the global zoom level for your monitor resolution:");
+            ui.add_space(6.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Zoom Level:");
+                ui.add(
+                    egui::Slider::new(&mut self.ui_scale, 0.8..=2.0)
+                        .step_by(0.05)
+                        .custom_formatter(|n, _| format!("{:.0}%", n * 100.0)),
+                );
+            });
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label("Quick Presets:");
+                if ui.button("90%").clicked() {
+                    self.ui_scale = 0.90;
+                }
+                if ui.button("100%").clicked() {
+                    self.ui_scale = 1.00;
+                }
+                if ui.button("115% (Default)").clicked() {
+                    self.ui_scale = 1.15;
+                }
+                if ui.button("130%").clicked() {
+                    self.ui_scale = 1.30;
+                }
+                if ui.button("150%").clicked() {
+                    self.ui_scale = 1.50;
+                }
+            });
+        });
+
+        ui.add_space(14.0);
+        ui.group(|ui| {
+            ui.heading("Hardware Connection Status");
+            ui.horizontal(|ui| {
+                ui.label("Active Device:");
+                ui.label(egui::RichText::new(&self.connected_info).strong().color(
+                    if self.device_connected {
+                        Color32::from_rgb(46, 213, 115)
+                    } else {
+                        Color32::from_rgb(255, 71, 87)
+                    },
+                ));
+            });
+
+            ui.add_space(6.0);
+            if ui.button("Check / Refresh Mouse Connection").clicked() {
+                self.check_connection();
+            }
+        });
+
+        ui.add_space(14.0);
+        ui.group(|ui| {
+            ui.heading("About & Hardware Specifications");
+            ui.label("• Device: E-DRA EM624 Gaming Mouse (7D + 1 Wheel)");
+            ui.label("• Optical Sensor: SunplusIT SPCP6662 (6662IC) • 14 discrete DPI steps");
+            ui.label("• MCU Controller: SunplusIT SPCP6651B");
+            ui.label("• Switches: Huano 50M rated");
+            ui.label("• USB Protocol: HID Feature Reports 0x40 (Control) / 0x41 (Streaming)");
+            ui.label(
+                "• Communication: 100% offline, native Rust, zero network or HTML dependencies",
+            );
+        });
     }
 }
