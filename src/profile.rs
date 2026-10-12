@@ -7,6 +7,12 @@ use std::path::Path;
 pub const PROFILE_SIZE: usize = 2048;
 pub const PROFILE_MAGIC: [u8; 4] = [0x1b, 0xcf, 0x08, 0xb8];
 
+/// Official DPI lookup table for the SunplusIT SPCP6662 (6662IC) sensor
+/// extracted from the official application binary DFM (TForm1 gbCPI strings).
+pub const OFFICIAL_DPI_STEPS: [u32; 14] = [
+    200, 400, 600, 800, 1000, 1200, 1600, 2000, 2400, 3200, 4800, 6400, 8000, 10000,
+];
+
 /// Standard 12-key button mapping (4 bytes per key, 48 bytes total) from factory firmware.
 /// Guaranteed functional mouse actions:
 /// Key 1: Left Click, Key 2: Forward (Side 1), Key 3: CPI Loop,
@@ -130,8 +136,11 @@ impl MouseProfile {
             };
 
             let enabled = (active_stages_mask & (1 << i)) != 0;
-            // Common SPCP6651B step: index 1=800, 2=1200, 3=1600, 4=2400, etc.
-            let approx_dpi = (lvl as u32) * 400 + 400;
+            let approx_dpi = if (lvl as usize) < OFFICIAL_DPI_STEPS.len() {
+                OFFICIAL_DPI_STEPS[lvl as usize]
+            } else {
+                8000
+            };
 
             dpi_stages.push(DpiStage {
                 level_index: lvl,
@@ -269,6 +278,21 @@ impl MouseProfile {
         self.raw[0x03ff] = Self::calculate_checksum(&self.raw[0x03f8..0x03ff]);
     }
 
+    /// Clamp all 6 DPI stage nibbles to max 12 (0x0C = 5200 DPI).
+    /// The SPCP6651B optical sensor only supports calibrated register indices 0..12.
+    /// Indices > 12 (such as 14 = 7200 DPI) cause an out-of-bounds sensor calibration
+    /// table lookup in MCU firmware, crashing the physical button interrupt handler.
+    pub fn clamp_dpi_nibbles(&mut self) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        for byte_idx in 0x2c..=0x2e {
+            let low = (self.raw[byte_idx] & 0x0f).min(12);
+            let high = ((self.raw[byte_idx] >> 4) & 0x0f).min(12);
+            self.raw[byte_idx] = low | (high << 4);
+        }
+    }
+
     /// Apply 100% standard mouse button actions (Left, Right, Middle, Forward, Backward, CPI Loop)
     /// to both Office Mode and Gaming Mode tables, while recalculating checksums.
     pub fn apply_standard_buttons(&mut self) {
@@ -280,6 +304,7 @@ impl MouseProfile {
 
         // Hardware safety registers
         self.raw[4] = 0xdf;      // 5 active DPI stages, mask stage 6 MCU lockup
+        self.clamp_dpi_nibbles(); // Clamp DPI steps <= 12 to prevent sensor lookup overflow
         self.raw[0x00a4] = 0x01; // Force Gaming Mode (active button matrix)
         self.raw[0x00a8] = 0x0f; // Active button mask
         self.raw[0x00aa] = 0x18; // Feature report enable
@@ -295,6 +320,7 @@ impl MouseProfile {
             return;
         }
         self.raw[4] = 0xdf;      // safe 5 active DPI stages
+        self.clamp_dpi_nibbles(); // Clamp DPI steps <= 12 to prevent sensor lookup overflow
         self.raw[0x00a4] = 0x01; // Force Gaming Mode
         self.raw[0x00a8] = 0x0f;
         self.raw[0x00aa] = 0x18;

@@ -59,6 +59,14 @@ def convert_profile_bytes(raw_bytes: bytes, button_mode: str = "standard") -> by
     buf[0x00AA] = 0x18  # Feature report enable
     buf[0x03F9] = 0x04  # Clear 0x80 hardware button lockout flag
 
+    # 1b. Clamp all 6 DPI stage nibbles to max 12 (0x0C = 5200 DPI)
+    # Sensor calibration lookup table overflows on nibble > 12 (e.g. 14 = 7200 DPI),
+    # causing the SPCP6651B MCU button interrupt dispatch loop to trap.
+    for off in range(0x2C, 0x2F):
+        low = min(buf[off] & 0x0F, 12)
+        high = min((buf[off] >> 4) & 0x0F, 12)
+        buf[off] = low | (high << 4)
+
     # 2. Button handling
     if button_mode == "standard":
         buf[0x00C0:0x00F0] = STANDARD_BUTTON_TABLE # Office Mode table

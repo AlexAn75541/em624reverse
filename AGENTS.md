@@ -2,10 +2,15 @@
 
 ## 1. Project Overview & Hardware Profile
 
-- **Device Name**: Dareu / Sunplus EM624 Gaming Mouse
+- **Device Name**: E-DRA EM624 Gaming Mouse
 - **Vendor ID (VID)**: `0x1BCF` (Sunplus Innovation Technology Inc.)
 - **Product ID (PID)**: `0x08B8` (EM624 Gaming Mouse)
-- **Controller / Sensor**: SunplusIT SPCP6651B MCU & Optical Gaming Sensor
+- **Controller / Sensor**: SunplusIT SPCP6662 (6662IC) Optical Gaming Sensor + SPCP6651B MCU
+- **Switches**: Huano 50M (50 million clicks rated)
+- **Buttons**: 7 physical switches + 1 scroll wheel
+- **Calibrated DPI Table (14 discrete steps)**:
+  `[200, 400, 600, 800, 1000, 1200, 1600, 2000, 2400, 3200, 4800, 6400, 8000, 10000]`
+- **Polling Rates**: 125Hz, 250Hz, 500Hz, 1000Hz
 - **USB Interface Architecture**:
   - **Interface 0 (`MI_00`)**: Standard USB HID Mouse (Endpoint `0x81` IN, 1000Hz polling rate, buttons + X/Y relative motion + wheel).
   - **Interface 1 (`MI_01`)**: Multi-collection HID containing:
@@ -65,6 +70,22 @@ Byte 1..7: 7-byte raw payload slice from profile memory
 ```
 - Total chunks per 2048-byte profile: **293 chunks**.
 - Inter-chunk transfer delay: 4ms to 6ms.
+
+---
+
+### Hardware Checksum Architecture
+The Sunplus MCU validates 5 distinct checksum sectors before activating mouse button event dispatch:
+1. **Sector 0 (`0x00A3`)**: Sum of bytes `0x0000..0x00A2` (163 bytes, covers Magic, Active Mask, DPI nibbles, RGB colors).
+2. **Sector 1 (`0x00BF`)**: Sum of bytes `0x00A4..0x00BE` (27 bytes, mode & report control registers).
+3. **Sector 2 (`0x00F0`)**: Sum of bytes `0x00C0..0x00EF` (48 bytes, Office Mode button table).
+4. **Sector 3 (`0x0121`)**: Sum of bytes `0x00F1..0x0120` (48 bytes, Gaming Mode button table).
+5. **Sector Footer (`0x03FF`)**: Sum of bytes `0x03F8..0x03FE` (7 bytes, hardware footer).
+
+Algorithm for each sector:
+```
+checksum = (sum(sector_bytes) ^ 0x5A) & 0xFF
+```
+*If Sector 0 checksum at `0x00A3` fails, the MCU boots optical cursor tracking but completely shuts down physical button click dispatching.*
 
 ---
 
