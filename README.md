@@ -21,9 +21,10 @@ Open-source driver, reverse-engineering toolkit, and configuration CLI for the *
 ## Features Implemented
 
 - **Cross-Platform USB HID Driver**: Written in Rust using `hidapi`, supporting both Windows (Win32 HID) and Linux (`hidraw`).
-- **Profile Parser & Decoder**: Reads 2048-byte `.bin` profiles and decodes active DPI stages, nibble-packed DPI values, and 24-bit RGB LED colors.
+- **Zero-Install WebHID Configurator (`web/index.html`)**: Complete modern web GUI running directly in Google Chrome / Microsoft Edge. Connects, reads, customizes DPI stages/RGB colors, and flashes EEPROM directly over USB WebHID.
+- **Profile Parser & Decoder**: Reads 2048-byte `.bin` and `.em624` profiles and decodes active DPI stages, calibrated sensor levels, and 24-bit RGB LED colors.
 - **Direct Flash Read/Write**: Flashes custom profiles directly into mouse EEPROM via USB HID Feature Reports (`0x40` control + `0x41` 7-byte chunk streaming).
-- **MCU Safety Guard (`--og-compat`)**: Prevents firmware hang/lockup by safely masking stage 6 and ensuring click responsiveness.
+- **MCU Safety Guard**: Prevents firmware hang/lockup by safely masking stage 6, clamping sensor nibbles <= 12, and calculating all 5 hardware checksums.
 
 ---
 

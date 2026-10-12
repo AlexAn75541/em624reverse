@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-DRA EM624 Modern Mouse Configurator</title>
+  <style>
+    :root {
+      --bg-base: #0b0e14;
+      --bg-panel: #121721;
+      --bg-card: #18202f;
+      --border-color: #243046;
+      --border-focus: #00f2fe;
+      --text-main: #f0f4fc;
+      --text-muted: #8b9bb4;
+      --accent-cyan: #00f2fe;
+      --accent-blue: #4facfe;
+      --accent-red: #ff4757;
+      --accent-green: #2ed573;
+      --accent-amber: #ffa502;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --font-stack: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      font-family: var(--font-stack);
+      line-height: 1.5;
+      padding: 1.5rem;
+      min-height: 100vh;
+    }
+
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 1.5rem;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand h1 {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.65rem;
+      font-size: 0.8rem;
+      font-weight: 600;
+      border-radius: var(--radius-sm);
+      background-color: rgba(255, 71, 87, 0.15);
+      color: var(--accent-red);
+      border: 1px solid rgba(255, 71, 87, 0.3);
+    }
+
+    .status-badge.connected {
+      background-color: rgba(46, 213, 115, 0.15);
+      color: var(--accent-green);
+      border-color: rgba(46, 213, 115, 0.3);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    button {
+      background: var(--bg-card);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 0.55rem 1.1rem;
+      border-radius: var(--radius-sm);
+      font-weight: 600;
+      font-size: 0.875rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 10px rgba(0, 242, 254, 0.2);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    button.primary {
+      background: linear-gradient(135deg, #00c6ff, #0072ff);
+      border: none;
+      color: #fff;
+    }
+
+    button.primary:hover:not(:disabled) {
+      box-shadow: 0 0 14px rgba(0, 114, 255, 0.4);
+    }
+
+    .main-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .card {
+      background-color: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1.25rem;
+    }
+
+    .card-title {
+      font-size: 1.05rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: var(--accent-cyan);
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 0.5rem;
+    }
+
+    .dpi-stage {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 0.85rem;
+      margin-bottom: 0.75rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .dpi-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .dpi-slider-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent-cyan);
+      cursor: pointer;
+    }
+
+    input[type="color"] {
+      appearance: none;
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      background: transparent;
+    }
+
+    input[type="color"]::-webkit-color-swatch-wrapper {
+      padding: 0;
+    }
+
+    input[type="color"]::-webkit-color-swatch {
+      border: 2px solid var(--border-color);
+      border-radius: 50%;
+    }
+
+    .button-list {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .button-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 0.6rem 0.85rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.875rem;
+    }
+
+    .button-label {
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .button-action {
+      font-weight: 700;
+      color: var(--text-main);
+    }
+
+    .tab-bar {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1rem;
+    }
+
+    .tab-btn {
+      padding: 0.4rem 0.8rem;
+      font-size: 0.8rem;
+    }
+
+    .tab-btn.active {
+      background: rgba(0, 242, 254, 0.15);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    .log-box {
+      margin-top: 1.5rem;
+      background-color: #05070a;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 0.85rem;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #79c0ff;
+      height: 120px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <h1>E-DRA EM624 Modern WebHID Configurator</h1>
+      <span id="statusBadge" class="status-badge">Disconnected</span>
+    </div>
+    <div class="actions">
+      <button id="btnConnect" class="primary">Connect Mouse</button>
+      <button id="btnReadProfile" disabled>Read from Mouse</button>
+      <button id="btnFlashProfile" class="primary" disabled>Flash to Mouse</button>
+      <button id="btnLoadFile">Load Profile File</button>
+      <input type="file" id="fileInput" accept=".em624,.bin" style="display: none;">
+      <button id="btnExportFile" disabled>Export .em624</button>
+    </div>
+  </header>
+
+  <main class="main-grid">
+    <!-- DPI Settings Section -->
+    <section class="card">
+      <div class="card-title">
+        <span>DPI Stages & Optical Sensor (SPCP6662)</span>
+        <span style="font-size: 0.8rem; font-weight: 400; color: var(--text-muted);">Max 10,000 DPI</span>
+      </div>
+      <div id="dpiContainer">
+        <!-- Injected via JavaScript -->
+      </div>
+    </section>
+
+    <!-- Button Remap Matrix Section -->
+    <section class="card">
+      <div class="card-title">
+        <span>Button Mapping Matrix (7 Switches)</span>
+        <div class="tab-bar">
+          <button id="tabOffice" class="tab-btn">Office Mode</button>
+          <button id="tabGaming" class="tab-btn active">Gaming Mode</button>
+        </div>
+      </div>
+      <ul id="buttonList" class="button-list">
+        <!-- Injected via JavaScript -->
+      </ul>
+    </section>
+  </main>
+
+  <div id="logBox" class="log-box" aria-live="polite">Ready. Click "Connect Mouse" to communicate with the EM624 over WebHID.</div>
+
+  <script>
+    const VID = 0x1BCF;
+    const PID = 0x08B8;
+    const USAGE_PAGE = 0xFF00;
+    const USAGE = 0x01;
+    const PROFILE_SIZE = 2048;
+
+    const OFFICIAL_DPI_STEPS = [
+      200, 400, 600, 800, 1000, 1200, 1600, 2000, 2400, 3200, 4800, 6400, 8000, 10000
+    ];
+
+    let device = null;
+    let currentProfile = new Uint8Array(PROFILE_SIZE);
+    let activeTab = 'gaming';
+
+    const logBox = document.getElementById('logBox');
+    function log(msg) {
+      logBox.textContent += `\n[${new Date().toLocaleTimeString()}] ${msg}`;
+      logBox.scrollTop = logBox.scrollHeight;
+    }
+
+    // Default pristine DailyUse profile baseline embedded for instant offline use
+    function loadDefaultProfile() {
+      currentProfile.fill(0);
+      currentProfile[0] = 0x1b; currentProfile[1] = 0xcf;
+      currentProfile[2] = 0x08; currentProfile[3] = 0xb8;
+      currentProfile[4] = 0xdf; // 5 stages enabled
+      currentProfile[0x2c] = 0x42; // Stage 1 (600), Stage 2 (1000)
+      currentProfile[0x2d] = 0x86; // Stage 3 (1600), Stage 4 (2400)
+      currentProfile[0x2e] = 0xca; // Stage 5 (4800), Stage 6 (8000)
+
+      // Colors: Red, Green, White, Orange, Cyan, Yellow
+      const colors = [
+        [255, 0, 0], [0, 255, 0], [255, 255, 255],
+        [255, 128, 0], [0, 255, 255], [128, 127, 0]
+      ];
+      for (let i = 0; i < 6; i++) {
+        currentProfile[0x3c + i * 4] = colors[i][0];
+        currentProfile[0x3c + i * 4 + 1] = colors[i][1];
+        currentProfile[0x3c + i * 4 + 2] = colors[i][2];
+      }
+
+      // Mode & safety
+      currentProfile[0x00a4] = 0x01; // Gaming mode
+      currentProfile[0x03f9] = 0x04; // Button lockout cleared
+      renderUI();
+    }
+
+    // WebHID Connection
+    document.getElementById('btnConnect').addEventListener('click', async () => {
+      try {
+        if (!navigator.hid) {
+          alert('WebHID is not supported by your browser. Please use Chrome, Edge, or Opera.');
+          return;
+        }
+
+        const devices = await navigator.hid.requestDevice({
+          filters: [{ vendorId: VID, productId: PID }]
+        });
+
+        if (devices.length === 0) return;
+
+        // Find collection with Usage Page 0xFF00, Usage 0x01 (Col04)
+        for (const dev of devices) {
+          for (const col of dev.collections) {
+            if (col.usagePage === USAGE_PAGE && col.usage === USAGE) {
+              device = dev;
+              break;
+            }
+          }
+          if (device) break;
+        }
+
+        if (!device) device = devices[0];
+
+        await device.open();
+        document.getElementById('statusBadge').textContent = 'Connected (Col04)';
+        document.getElementById('statusBadge').classList.add('connected');
+        document.getElementById('btnReadProfile').disabled = false;
+        document.getElementById('btnFlashProfile').disabled = false;
+        document.getElementById('btnExportFile').disabled = false;
+
+        log(`Connected to EM624: ${device.productName || 'Gaming Mouse'}`);
+        await readProfileFromMouse();
+      } catch (err) {
+        log(`Connection error: ${err.message}`);
+      }
+    });
+
+    // Read profile over WebHID Feature Reports
+    async function readProfileFromMouse() {
+      if (!device) return;
+      log('Reading active configuration profile from mouse (293 chunks)...');
+      try {
+        // Opcode 0x09: Read 2048 bytes
+        const cmd = new Uint8Array([0x09, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00]);
+        await device.sendFeatureReport(0x40, cmd);
+        await new Promise(r => setTimeout(r, 10));
+
+        let offset = 0;
+        for (let i = 0; i < 293; i++) {
+          const report = await device.receiveFeatureReport(0x41);
+          const chunk = new Uint8Array(report.buffer, report.byteOffset + 1, 7);
+          const end = Math.min(offset + 7, PROFILE_SIZE);
+          currentProfile.set(chunk.subarray(0, end - offset), offset);
+          offset = end;
+          await new Promise(r => setTimeout(r, 4));
+        }
+
+        log('Successfully read 2048-byte profile from mouse memory!');
+        renderUI();
+      } catch (err) {
+        log(`Read error: ${err.message}`);
+      }
+    }
+    document.getElementById('btnReadProfile').addEventListener('click', readProfileFromMouse);
+
+    // Flash profile over WebHID
+    document.getElementById('btnFlashProfile').addEventListener('click', async () => {
+      if (!device) return;
+      log('Preparing profile and recalculating hardware checksums...');
+
+      // Enforce hardware safety
+      currentProfile[4] &= 0xdf; // Mask stage 6 trap
+      currentProfile[0x03f9] &= 0x7f; // Clear button lockout bit
+
+      // Clamp DPI nibbles
+      for (let off = 0x2c; off <= 0x2e; off++) {
+        const low = Math.min(currentProfile[off] & 0x0f, 12);
+        const high = Math.min((currentProfile[off] >> 4) & 0x0f, 12);
+        currentProfile[off] = low | (high << 4);
+      }
+
+      // Checksum helper: (sum ^ 0x5a) & 0xff
+      const calcChk = (start, end) => {
+        let sum = 0;
+        for (let i = start; i < end; i++) sum += currentProfile[i];
+        return (sum ^ 0x5a) & 0xff;
+      };
+
+      currentProfile[0x00a3] = calcChk(0x0000, 0x00a3);
+      currentProfile[0x00bf] = calcChk(0x00a4, 0x00bf);
+      currentProfile[0x00f0] = calcChk(0x00c0, 0x00f0);
+      currentProfile[0x0121] = calcChk(0x00f1, 0x0121);
+      currentProfile[0x03ff] = calcChk(0x03f8, 0x03ff);
+
+      log('Flashing 293 chunks to mouse memory...');
+      try {
+        // Step 1: Start write (0x40 0x07 0x00 0x00 0x00 0x08 0x00)
+        const startCmd = new Uint8Array([0x07, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00]);
+        await device.sendFeatureReport(0x40, startCmd);
+        await new Promise(r => setTimeout(r, 15));
+
+        // Step 2: Stream 293 chunks
+        for (let i = 0; i < 293; i++) {
+          const off = i * 7;
+          const chunk = new Uint8Array(7).fill(0xff);
+          const slice = currentProfile.subarray(off, Math.min(off + 7, PROFILE_SIZE));
+          chunk.set(slice);
+          await device.sendFeatureReport(0x41, chunk);
+          await new Promise(r => setTimeout(r, 5));
+        }
+
+        // Step 3: Commit (0x40 0x0E)
+        const commitCmd = new Uint8Array([0x0e, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+        try {
+          await device.sendFeatureReport(0x40, commitCmd);
+        } catch (e) {
+          // Expected USB bus power-cycle acknowledge
+        }
+
+        log('Profile successfully flashed! Settings active immediately.');
+      } catch (err) {
+        log(`Flash error: ${err.message}`);
+      }
+    });
+
+    // File loading
+    document.getElementById('btnLoadFile').addEventListener('click', () => {
+      document.getElementById('fileInput').click();
+    });
+
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const buf = new Uint8Array(event.target.result);
+        if (buf.length !== PROFILE_SIZE) {
+          alert('Invalid profile file size: must be exactly 2048 bytes.');
+          return;
+        }
+        currentProfile.set(buf);
+        document.getElementById('btnExportFile').disabled = false;
+        log(`Loaded profile file: ${file.name}`);
+        renderUI();
+      };
+      reader.readAsArrayBuffer(file);
+    });
+
+    // File export
+    document.getElementById('btnExportFile').addEventListener('click', () => {
+      const blob = new Blob([currentProfile], { type: 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'custom_profile.em624';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // UI Rendering
+    function renderUI() {
+      // 1. Render DPI stages
+      const dpiContainer = document.getElementById('dpiContainer');
+      dpiContainer.innerHTML = '';
+
+      const nibbles = [
+        currentProfile[0x2c] & 0x0f,
+        (currentProfile[0x2c] >> 4) & 0x0f,
+        currentProfile[0x2d] & 0x0f,
+        (currentProfile[0x2d] >> 4) & 0x0f,
+        currentProfile[0x2e] & 0x0f,
+        (currentProfile[0x2e] >> 4) & 0x0f,
+      ];
+
+      for (let i = 0; i < 6; i++) {
+        const stageDiv = document.createElement('div');
+        stageDiv.className = 'dpi-stage';
+
+        const stepIdx = Math.min(nibbles[i], OFFICIAL_DPI_STEPS.length - 1);
+        const dpiVal = OFFICIAL_DPI_STEPS[stepIdx];
+        const isEnabled = (currentProfile[4] & (1 << i)) !== 0;
+
+        const r = currentProfile[0x3c + i * 4];
+        const g = currentProfile[0x3c + i * 4 + 1];
+        const b = currentProfile[0x3c + i * 4 + 2];
+        const hexColor = `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+
+        stageDiv.innerHTML = `
+          <div class="dpi-header">
+            <label style="display: flex; align-items: center; gap: 0.5rem; font-weight: 700;">
+              <input type="checkbox" ${isEnabled ? 'checked' : ''} data-stage="${i}">
+              Stage ${i + 1}
+            </label>
+            <span id="dpiValText-${i}" style="font-weight: 700; color: var(--accent-cyan);">${dpiVal} DPI</span>
+          </div>
+          <div class="dpi-slider-row">
+            <input type="range" min="0" max="12" value="${stepIdx}" data-stage="${i}">
+            <input type="color" value="${hexColor}" data-stage="${i}">
+          </div>
+        `;
+
+        // Event listeners
+        const slider = stageDiv.querySelector('input[type="range"]');
+        slider.addEventListener('input', (e) => {
+          const s = parseInt(e.target.dataset.stage);
+          const val = parseInt(e.target.value);
+          document.getElementById(`dpiValText-${s}`).textContent = `${OFFICIAL_DPI_STEPS[val]} DPI`;
+
+          const byteOff = 0x2c + Math.floor(s / 2);
+          if (s % 2 === 0) {
+            currentProfile[byteOff] = (currentProfile[byteOff] & 0xf0) | (val & 0x0f);
+          } else {
+            currentProfile[byteOff] = (currentProfile[byteOff] & 0x0f) | ((val & 0x0f) << 4);
+          }
+        });
+
+        const colorInput = stageDiv.querySelector('input[type="color"]');
+        colorInput.addEventListener('input', (e) => {
+          const s = parseInt(e.target.dataset.stage);
+          const hex = e.target.value;
+          currentProfile[0x3c + s * 4] = parseInt(hex.substr(1, 2), 16);
+          currentProfile[0x3c + s * 4 + 1] = parseInt(hex.substr(3, 2), 16);
+          currentProfile[0x3c + s * 4 + 2] = parseInt(hex.substr(5, 2), 16);
+        });
+
+        const chk = stageDiv.querySelector('input[type="checkbox"]');
+        chk.addEventListener('change', (e) => {
+          const s = parseInt(e.target.dataset.stage);
+          if (e.target.checked) currentProfile[4] |= (1 << s);
+          else currentProfile[4] &= ~(1 << s);
+          currentProfile[4] &= 0xdf; // Safety clamp
+        });
+
+        dpiContainer.appendChild(stageDiv);
+      }
+
+      // 2. Render Buttons
+      renderButtons();
+    }
+
+    function renderButtons() {
+      const buttonList = document.getElementById('buttonList');
+      buttonList.innerHTML = '';
+
+      const baseOff = activeTab === 'gaming' ? 0x00f1 : 0x00c0;
+      const slotNames = [
+        'Button 1: Left Key',
+        'Button 4: Forward (Upper Side)',
+        'Aux Slot 3: Virtual Fn',
+        'Button 2: Right Key',
+        'Button 5: Backward (Lower Side)',
+        'Aux Slot 6: Virtual Fn',
+        'Button 3: Middle Key (Wheel)',
+        'Button 7: DPI -',
+        'Button 6: DPI + / Loop'
+      ];
+
+      for (let s = 0; s < 9; s++) {
+        const off = baseOff + s * 4;
+        const t = currentProfile[off];
+        const p1 = currentProfile[off + 1];
+        const p2 = currentProfile[off + 2];
+
+        let desc = 'Standard Action';
+        if (t === 0x01) {
+          if (p1 === 1) desc = 'Left Click';
+          else if (p1 === 2) desc = 'Right Click';
+          else if (p1 === 4) desc = 'Middle Click';
+          else if (p1 === 8) desc = 'Forward';
+          else if (p1 === 16) desc = 'Backward';
+        } else if (t === 0x02) {
+          desc = `Hotkey (Scancode 0x${p2.toString(16)})`;
+        } else if (t === 0x03) {
+          desc = 'Multimedia / Consumer';
+        } else if (t === 0x07) {
+          desc = p1 === 0x80 ? 'LED ON/OFF' : 'LED Mode';
+        } else if (t === 0x08 || t === 0x06) {
+          desc = 'CPI Cycle';
+        } else if (t === 0x09) {
+          desc = p1 === 1 ? 'Gaming Mode' : 'DPI Switch';
+        }
+
+        const li = document.createElement('li');
+        li.className = 'button-item';
+        li.innerHTML = `
+          <span class="button-label">${slotNames[s]}</span>
+          <span class="button-action">${desc}</span>
+        `;
+        buttonList.appendChild(li);
+      }
+    }
+
+    // Tab switching
+    document.getElementById('tabOffice').addEventListener('click', () => {
+      activeTab = 'office';
+      document.getElementById('tabOffice').classList.add('active');
+      document.getElementById('tabGaming').classList.remove('active');
+      renderButtons();
+    });
+
+    document.getElementById('tabGaming').addEventListener('click', () => {
+      activeTab = 'gaming';
+      document.getElementById('tabGaming').classList.add('active');
+      document.getElementById('tabOffice').classList.remove('active');
+      renderButtons();
+    });
+
+    // Initialize default values on page load
+    loadDefaultProfile();
+  </script>
+</body>
+</html>
