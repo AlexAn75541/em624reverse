@@ -65,6 +65,7 @@ pub struct DpiStage {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ButtonBinding {
     pub key_number: u8,
+    pub physical_button: String,
     pub key_type: u8,
     pub param1: u8,
     pub param2: u8,
@@ -170,6 +171,19 @@ impl MouseProfile {
         let p1 = slice[1];
         let p2 = slice[2];
         let p3 = slice[3];
+
+        let physical_button = match key_num {
+            1 => "Button 1: Left Key",
+            2 => "Button 4: Forward (Side 1)",
+            3 => "Aux Slot 3: Virtual",
+            4 => "Button 2: Right Key",
+            5 => "Button 5: Backward (Side 2)",
+            6 => "Aux Slot 6: Virtual",
+            7 => "Button 3: Middle Key (Wheel)",
+            8 => "Button 7: DPI -",
+            9 => "Button 6: DPI +",
+            _ => "Unused Slot",
+        }.to_string();
         let desc = match key_type {
             0x01 => match p1 {
                 0x01 => "Left Click".to_string(),
@@ -223,6 +237,7 @@ impl MouseProfile {
 
         ButtonBinding {
             key_number: key_num,
+            physical_button,
             key_type,
             param1: p1,
             param2: p2,

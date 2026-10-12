@@ -176,39 +176,7 @@ impl Em624Device {
 
     /// Read active 2048-byte configuration profile directly from mouse flash memory
     pub fn read_profile(&self) -> Result<Vec<u8>> {
-        // Step A: Init read handshake (0x40, 0x0D)
-        let mut init_cmd = [0u8; 8];
-        init_cmd[0] = REPORT_ID_CMD;
-        init_cmd[1] = 0x0D;
-        let _ = self.send_feature_report(&init_cmd);
-        sleep(Duration::from_millis(5));
-
-        // Step B: Flush status report
-        let mut dummy = [0u8; 8];
-        dummy[0] = REPORT_ID_DATA;
-        let _ = self.get_feature_report(&mut dummy);
-        sleep(Duration::from_millis(5));
-
-        // Step C: Query config offset: 40 09 01 22 00 0c 00 00
-        let mut query_cmd = [0u8; 8];
-        query_cmd[0] = REPORT_ID_CMD;
-        query_cmd[1] = CMD_READ;
-        query_cmd[2] = 0x01;
-        query_cmd[3] = 0x22;
-        query_cmd[4] = 0x00;
-        query_cmd[5] = 0x0c;
-        self.send_feature_report(&query_cmd)?;
-        sleep(Duration::from_millis(10));
-
-        // Step D: Read 2 chunks of config info
-        for _ in 0..2 {
-            let mut buf = [0u8; 8];
-            buf[0] = REPORT_ID_DATA;
-            let _ = self.get_feature_report(&mut buf);
-            sleep(Duration::from_millis(5));
-        }
-
-        // Step E: Request full 2048-byte profile: 40 09 00 00 08 00 00 00
+        // Step 1: Request full 2048-byte profile: 40 09 00 00 08 00 00 00
         let mut read_cmd = [0u8; 8];
         read_cmd[0] = REPORT_ID_CMD;
         read_cmd[1] = CMD_READ;
@@ -218,40 +186,19 @@ impl Em624Device {
         read_cmd[5] = 0x00;
         read_cmd[6] = 0x00;
         read_cmd[7] = 0x00;
-        self.send_feature_report(&read_cmd)?;
+        self.send_feature_report(&read_cmd)
+            .context("Failed to send Read command (0x40, 0x09)")?;
         sleep(Duration::from_millis(15));
 
-        // Step F: Read all 293 chunks via GET_REPORT 0x41
+        // Step 2: Read all 293 chunks via GET_REPORT 0x41
         let mut profile_data = Vec::with_capacity(PROFILE_SIZE);
         for chunk_idx in 0..TOTAL_CHUNKS {
-            let mut buf;
-            let mut attempts = 0;
-            let mut last_err = None;
-            let mut success = false;
-
-            while attempts < 3 {
-                buf = [0u8; 8];
-                buf[0] = REPORT_ID_DATA;
-                match self.get_feature_report(&mut buf) {
-                    Ok(len) => {
-                        if len > 1 {
-                            profile_data.extend_from_slice(&buf[1..8]);
-                        }
-                        success = true;
-                        break;
-                    }
-                    Err(e) => {
-                        last_err = Some(e);
-                        attempts += 1;
-                        sleep(Duration::from_millis(10));
-                    }
-                }
-            }
-
-            if !success {
-                if let Some(e) = last_err {
-                    return Err(e).context(format!("Failed on reading chunk {}/{}", chunk_idx + 1, TOTAL_CHUNKS));
-                }
+            let mut buf = [0u8; 8];
+            buf[0] = REPORT_ID_DATA;
+            let len = self.get_feature_report(&mut buf)
+                .with_context(|| format!("Failed on reading chunk {}/{}", chunk_idx + 1, TOTAL_CHUNKS))?;
+            if len > 1 {
+                profile_data.extend_from_slice(&buf[1..8]);
             }
             sleep(Duration::from_millis(4));
         }

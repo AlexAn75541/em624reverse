@@ -118,6 +118,7 @@ cargo build
   - **Checksum Engine**: Complete reverse-engineered `(sum ^ 0x5A) & 0xFF` algorithm across all profile sectors.
 
 For in-depth analysis and technical details, see:
+- [`BUTTON_SPEC.md`](./BUTTON_SPEC.md): Complete button bytecode matrix, PCB switch routing, and opcode reference.
 - [`MIGRATION.md`](./MIGRATION.md): Migration guide from official vendor software (`EM624 Mouse.exe`).
 - [`AGENTS.md`](./AGENTS.md): Full technical specification, decompiled assembly addresses, and recovery procedure.
 - [`SESSION_NOTES.md`](./SESSION_NOTES.md): Comprehensive session log, protocol discoveries, challenges, and solutions.

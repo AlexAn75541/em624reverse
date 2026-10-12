@@ -121,15 +121,15 @@ fn main() -> Result<()> {
 
             println!("\nOffice Mode Buttons (0x00C0):");
             for btn in &profile.office_buttons {
-                if btn.description != "None" {
-                    println!("  Key {:2}: {}", btn.key_number, btn.description);
+                if btn.description != "None" && !btn.physical_button.contains("Unused") {
+                    println!("  {:28} -> {}", btn.physical_button, btn.description);
                 }
             }
 
             println!("\nGaming Mode Buttons (0x00F1):");
             for btn in &profile.gaming_buttons {
-                if btn.description != "None" {
-                    println!("  Key {:2}: {}", btn.key_number, btn.description);
+                if btn.description != "None" && !btn.physical_button.contains("Unused") {
+                    println!("  {:28} -> {}", btn.physical_button, btn.description);
                 }
             }
 
@@ -242,8 +242,8 @@ fn main() -> Result<()> {
             println!("\n--- Current Button Mapping ({}) ---", if profile.is_gaming_mode { "Gaming Mode" } else { "Office Mode" });
             let active_buttons = if profile.is_gaming_mode { &profile.gaming_buttons } else { &profile.office_buttons };
             for btn in active_buttons {
-                if btn.description != "None" {
-                    println!("  Key {:2}: {}", btn.key_number, btn.description);
+                if btn.description != "None" && !btn.physical_button.contains("Unused") {
+                    println!("  {:28} -> {}", btn.physical_button, btn.description);
                 }
             }
             println!("========================================\n");
