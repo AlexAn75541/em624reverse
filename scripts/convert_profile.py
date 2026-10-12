@@ -68,11 +68,12 @@ def convert_profile_bytes(raw_bytes: bytes, button_mode: str = "standard") -> by
     else:
         raise ValueError(f"Unknown button mode: {button_mode}")
 
-    # 3. Recalculate all 4 hardware checksums
-    buf[0x00BF] = calc_checksum(buf[0x00A4:0x00BF]) # Sector A
-    buf[0x00F0] = calc_checksum(buf[0x00C0:0x00F0]) # Office Table
-    buf[0x0121] = calc_checksum(buf[0x00F1:0x0121]) # Gaming Table
-    buf[0x03FF] = calc_checksum(buf[0x03F8:0x03FF]) # Footer Table
+    # 3. Recalculate all 5 hardware checksums:
+    buf[0x00A3] = calc_checksum(buf[0x0000:0x00A3]) # Sector 0 (Magic, DPI, RGB)
+    buf[0x00BF] = calc_checksum(buf[0x00A4:0x00BF]) # Sector 1 (Mode & Control)
+    buf[0x00F0] = calc_checksum(buf[0x00C0:0x00F0]) # Sector 2 (Office Table)
+    buf[0x0121] = calc_checksum(buf[0x00F1:0x0121]) # Sector 3 (Gaming Table)
+    buf[0x03FF] = calc_checksum(buf[0x03F8:0x03FF]) # Sector Footer
 
     return buf
 

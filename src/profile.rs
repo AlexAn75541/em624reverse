@@ -257,9 +257,15 @@ impl MouseProfile {
         if self.raw.len() != PROFILE_SIZE {
             return;
         }
+        // Sector 0 (0x0000..0x00A2, 163 bytes): Magic, Active Stages, DPI nibbles, RGB LED colors
+        self.raw[0x00a3] = Self::calculate_checksum(&self.raw[0x0000..0x00a3]);
+        // Sector 1 (0x00A4..0x00BE, 27 bytes): Mode flags and control registers
         self.raw[0x00bf] = Self::calculate_checksum(&self.raw[0x00a4..0x00bf]);
+        // Sector 2 (0x00C0..0x00EF, 48 bytes): Office Mode 12-button table
         self.raw[0x00f0] = Self::calculate_checksum(&self.raw[0x00c0..0x00f0]);
+        // Sector 3 (0x00F1..0x0120, 48 bytes): Gaming Mode 12-button table
         self.raw[0x0121] = Self::calculate_checksum(&self.raw[0x00f1..0x0121]);
+        // Sector Footer (0x03F8..0x03FF, 7 bytes): MCU hardware footer
         self.raw[0x03ff] = Self::calculate_checksum(&self.raw[0x03f8..0x03ff]);
     }
 
@@ -335,6 +341,9 @@ impl MouseProfile {
         // Inject user DPI stages and colors
         self.raw[0x2c..0x2f].copy_from_slice(&dpi_nibbles);
         self.raw[0x3c..0x6c].copy_from_slice(&rgb_colors);
+
+        // Recalculate Sector 0 checksum (0x00A3) and all sector checksums
+        self.recalculate_checksums();
     }
 
     /// Sanitize button table and mode flags with the verified standard working template.
