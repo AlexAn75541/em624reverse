@@ -89,7 +89,7 @@ checksum = (sum(sector_bytes) ^ 0x5A) & 0xFF
 
 ---
 
-## 4. Profile Binary Format (`profiles/*.bin`, 2048 Bytes)
+## 4. Profile Binary Format (`exampleProfiles/*.bin` and `*.em624`, 2048 Bytes)
 
 | Offset Range | Length | Description |
 |---|---|---|
@@ -149,7 +149,7 @@ If the mouse buttons or scroll wheel become unresponsive after flashing a custom
 ### Option B: Restore Default Working Profile via CLI
 Open PowerShell in the workspace and execute:
 ```powershell
-cargo run -- apply-profile profiles/DailyUse.bin
+cargo run -- apply-profile exampleProfiles/DailyUse.em624
 ```
 *`DailyUse.bin` contains standard 1:1 mouse button mappings (Left, Right, Middle, Back, Forward, DPI Switch).*
 

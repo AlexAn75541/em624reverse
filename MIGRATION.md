@@ -30,7 +30,7 @@ Stock profiles often contain the stage 6 trap or the `0x84` button lockout regis
 .\target\debug\em624.exe convert-profile "path\to\my_profile.bin" --buttons standard
 
 # Or convert all profiles in a folder:
-.\target\debug\em624.exe convert-all "profiles\" --buttons standard
+.\target\debug\em624.exe convert-all "exampleProfiles\" --buttons standard
 ```
 
 #### Option B: Using Standalone Python (No Rust required)
@@ -48,13 +48,13 @@ Once converted, you can flash any profile directly from the terminal without hav
 ### Standard Gaming Setup (Recommended)
 Restores standard Left, Right, Middle, Forward (Side 1), Backward (Side 2), and CPI loop:
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin
+.\target\debug\em624.exe apply-profile exampleProfiles\Valorant+CS2.em624
 ```
 
 ### Preserve Custom Profile Keybinds
 If you assigned custom keyboard shortcuts (e.g. Spacebar or Q) to mouse buttons and want them preserved:
 ```powershell
-.\target\debug\em624.exe apply-profile profiles\Valorant+CS2.bin --buttons keep
+.\target\debug\em624.exe apply-profile exampleProfiles\Valorant+CS2.em624 --buttons keep
 ```
 
 ---
@@ -92,7 +92,7 @@ If you previously used the stock app and your mouse buttons became unresponsive 
 
 1. **Quick CLI Recovery**:
    ```powershell
-   .\target\debug\em624.exe apply-profile profiles\DailyUse.bin
+   .\target\debug\em624.exe apply-profile exampleProfiles\DailyUse.em624
    ```
 2. **Physical Reset**:
    Unplug the USB cable for 5 seconds and plug it back in. The MCU reboots cleanly from persistent memory.

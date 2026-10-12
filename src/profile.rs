@@ -95,6 +95,42 @@ impl MouseProfile {
         Self::from_bytes(bytes)
     }
 
+    /// Refresh parsed DPI stages and RGB colors from raw bytes
+    pub fn refresh_stages(&mut self) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        let levels = [
+            self.raw[44] & 0x0f,
+            (self.raw[44] >> 4) & 0x0f,
+            self.raw[45] & 0x0f,
+            (self.raw[45] >> 4) & 0x0f,
+            self.raw[46] & 0x0f,
+            (self.raw[46] >> 4) & 0x0f,
+        ];
+        self.dpi_stages.clear();
+        for (i, &lvl) in levels.iter().enumerate() {
+            let color_offset = 60 + (i * 4);
+            let color = RgbColor {
+                r: self.raw[color_offset],
+                g: self.raw[color_offset + 1],
+                b: self.raw[color_offset + 2],
+            };
+            let enabled = (self.active_stages_mask & (1 << i)) != 0;
+            let approx_dpi = if (lvl as usize) < OFFICIAL_DPI_STEPS.len() {
+                OFFICIAL_DPI_STEPS[lvl as usize]
+            } else {
+                8000
+            };
+            self.dpi_stages.push(DpiStage {
+                level_index: lvl,
+                approx_dpi,
+                color,
+                enabled,
+            });
+        }
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
         if bytes.len() != PROFILE_SIZE {
             bail!("Invalid profile length: {} bytes (expected {})", bytes.len(), PROFILE_SIZE);
@@ -361,7 +397,7 @@ impl MouseProfile {
         let user_mask = self.raw[4];
 
         // 2. Clone from verified working hardware baseline (DailyUse)
-        let baseline = include_bytes!("../profiles/DailyUse.bin");
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
         self.raw.copy_from_slice(baseline);
 
         // 3. Inject user configuration
@@ -401,5 +437,44 @@ impl MouseProfile {
         let mut file = File::create(path)?;
         file.write_all(&self.raw)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_daily_use_checksums() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let profile = MouseProfile::from_bytes(baseline).expect("Failed to load DailyUse baseline");
+
+        // Verify all 5 hardware checksums on the baseline profile
+        let c0 = MouseProfile::calculate_checksum(&profile.raw[0x0000..0x00a3]);
+        let c1 = MouseProfile::calculate_checksum(&profile.raw[0x00a4..0x00bf]);
+        let c2 = MouseProfile::calculate_checksum(&profile.raw[0x00c0..0x00f0]);
+        let c3 = MouseProfile::calculate_checksum(&profile.raw[0x00f1..0x0121]);
+        let c4 = MouseProfile::calculate_checksum(&profile.raw[0x03f8..0x03ff]);
+
+        assert_eq!(c0, profile.raw[0x00a3], "Sector 0 checksum mismatch");
+        assert_eq!(c1, profile.raw[0x00bf], "Sector 1 checksum mismatch");
+        assert_eq!(c2, profile.raw[0x00f0], "Sector 2 checksum mismatch");
+        assert_eq!(c3, profile.raw[0x0121], "Sector 3 checksum mismatch");
+        assert_eq!(c4, profile.raw[0x03ff], "Sector Footer checksum mismatch");
+    }
+
+    #[test]
+    fn test_safe_profile_clamping() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let mut profile = MouseProfile::from_bytes(baseline).unwrap();
+
+        // Simulate an out-of-bounds stage 6 nibble (e.g. 14 = 0x0E)
+        profile.raw[0x2e] = 0xec;
+        profile.apply_safe_profile();
+
+        // Ensure high nibble was clamped to <= 12
+        let high_nibble = (profile.raw[0x2e] >> 4) & 0x0f;
+        assert!(high_nibble <= 12, "Nibble should be clamped <= 12, got {}", high_nibble);
+        assert_eq!(profile.raw[4] & (1 << 5), 0, "Stage 6 bit should be masked to 0");
     }
 }

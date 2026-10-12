@@ -23,6 +23,11 @@ extracted_assets/
 *.bin.bak
 dumps/
 
+# Session context logs & personal transcripts
+TODAYS_SESSION_CONTEXT.md
+*SESSION_LOG*.md
+*SESSION_CONTEXT*.md
+
 # Operating System & Editor Files
 .DS_Store
 Thumbs.db

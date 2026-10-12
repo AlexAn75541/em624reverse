@@ -1,4 +1,5 @@
 mod device;
+mod gui;
 mod profile;
 
 use anyhow::Result;
@@ -12,14 +13,16 @@ use profile::MouseProfile;
 
 #[derive(Parser)]
 #[command(name = "em624")]
-#[command(about = "Cross-platform driver & configuration CLI for EM624 Mouse", long_about = None)]
+#[command(about = "Cross-platform driver & configuration GUI/CLI for E-DRA EM624 Gaming Mouse", long_about = None)]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Launch the native graphical desktop interface (default if no subcommand is given)
+    Gui,
     /// List all connected USB HID devices
     List,
     /// Inspect and decode a 2048-byte .bin profile file
@@ -74,7 +77,7 @@ enum Commands {
     #[command(alias = "repair-profiles")]
     ConvertAll {
         /// Directory containing .bin profiles
-        #[arg(default_value = "profiles")]
+        #[arg(default_value = "exampleProfiles")]
         dir: PathBuf,
         /// Button mapping mode: 'standard' (default) or 'keep'
         #[arg(short, long, default_value = "standard")]
@@ -86,7 +89,22 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::List => {
+        None | Some(Commands::Gui) => {
+            let native_options = eframe::NativeOptions {
+                viewport: eframe::egui::ViewportBuilder::default()
+                    .with_inner_size([880.0, 640.0])
+                    .with_min_inner_size([700.0, 500.0])
+                    .with_title("E-DRA EM624 Gaming Mouse Configurator"),
+                ..Default::default()
+            };
+            eframe::run_native(
+                "E-DRA EM624 Gaming Mouse Configurator",
+                native_options,
+                Box::new(|cc| Ok(Box::new(gui::Em624App::new(cc)))),
+            )
+            .map_err(|e| anyhow::anyhow!("GUI error: {}", e))?;
+        }
+        Some(Commands::List) => {
             println!("Enumerating connected USB HID devices...\n");
             let api = HidApi::new()?;
             let mut count = 0;
@@ -110,7 +128,7 @@ fn main() -> Result<()> {
             }
             println!("\nTotal devices scanned: {}", count);
         }
-        Commands::InspectProfile { path } => {
+        Some(Commands::InspectProfile { path }) => {
             println!("Decoding profile: {}", path.display());
             let profile = MouseProfile::load_file(&path)?;
 
@@ -148,7 +166,7 @@ fn main() -> Result<()> {
                 );
             }
         }
-        Commands::ApplyProfile { path, buttons, vid, pid } => {
+        Some(Commands::ApplyProfile { path, buttons, vid, pid }) => {
             println!("Reading profile file: {}", path.display());
             let mut profile = MouseProfile::load_file(&path)?;
             println!("Loaded profile '{}' (Active mask: 0x{:02x})", profile.device_name, profile.active_stages_mask);
@@ -183,7 +201,7 @@ fn main() -> Result<()> {
             dev.write_profile(&profile.raw)?;
             println!("Successfully applied profile to mouse!");
         }
-        Commands::ReadProfile { dest, vid, pid } => {
+        Some(Commands::ReadProfile { dest, vid, pid }) => {
             let api = HidApi::new()?;
             let dev = match (vid, pid) {
                 (Some(v), Some(p)) => Em624Device::open_vid_pid(&api, v, p)?,
@@ -201,7 +219,7 @@ fn main() -> Result<()> {
                 println!("Active Stages Mask: 0x{:02x}", profile.active_stages_mask);
             }
         }
-        Commands::Probe { vid, pid } => {
+        Some(Commands::Probe { vid, pid }) => {
             println!("Connecting to EM624 Mouse for hardware diagnostic probe...");
             let api = HidApi::new()?;
             let dev = match (vid, pid) {
@@ -248,7 +266,7 @@ fn main() -> Result<()> {
             }
             println!("========================================\n");
         }
-        Commands::ConvertProfile { input, output, buttons } => {
+        Some(Commands::ConvertProfile { input, output, buttons }) => {
             println!("Loading profile: {}", input.display());
             let mut profile = MouseProfile::load_file(&input)?;
 
@@ -275,7 +293,7 @@ fn main() -> Result<()> {
             profile.save_file(&target_path)?;
             println!("Successfully converted and saved profile to: {}", target_path.display());
         }
-        Commands::ConvertAll { dir, buttons } => {
+        Some(Commands::ConvertAll { dir, buttons }) => {
             println!("Scanning directory for .bin profiles: {}", dir.display());
             let mut converted_count = 0;
             let mut scanned_count = 0;

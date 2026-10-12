@@ -1,4 +1,4 @@
-name: CI - Cross-Platform Build
+name: CI - Cross-Platform Build & Pre-Release
 
 on:
   push:
@@ -17,8 +17,10 @@ jobs:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            artifact_name: em624
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            artifact_name: em624.exe
 
     steps:
       - name: Checkout repository
@@ -28,7 +30,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libudev-dev pkg-config
+          sudo apt-get install -y libudev-dev pkg-config libx11-dev libxcursor-dev libxrandr-dev libxi-dev libasound2-dev libgl1-mesa-dev libwayland-dev libxkbcommon-dev
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -59,7 +61,66 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: em624-driver-${{ matrix.os }}
+          name: em624-${{ matrix.os }}
           path: |
             target/${{ matrix.target }}/release/em624
             target/${{ matrix.target }}/release/em624.exe
+
+  prerelease:
+    name: Publish Pre-Release
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: em624-windows-latest
+          path: dist/windows
+
+      - name: Download Linux Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: em624-ubuntu-latest
+          path: dist/linux
+
+      - name: Prepare Pre-Release Assets
+        run: |
+          mkdir -p release-assets
+          if [ -f "dist/windows/em624.exe" ]; then
+            cp dist/windows/em624.exe release-assets/em624-windows-x64.exe
+          fi
+          if [ -f "dist/linux/em624" ]; then
+            cp dist/linux/em624 release-assets/em624-linux-x64
+            chmod +x release-assets/em624-linux-x64
+          fi
+          ls -la release-assets/
+
+      - name: Create or Update Pre-Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: pre-release
+          name: "E-DRA EM624 Configurator (Automated Pre-Release)"
+          body: |
+            Automated continuous pre-release build of the **E-DRA EM624 Mouse Configurator**.
+
+            ### 📦 Included Binaries:
+            - **Windows (x64)**: `em624-windows-x64.exe` (Standalone Native GUI + CLI)
+            - **Linux (x64)**: `em624-linux-x64` (Native GUI + CLI)
+
+            ### 🚀 Features:
+            - **100% Native Offline Rust UI** (eframe/egui): zero HTML, zero webview, zero network activity.
+            - Visual mouse layout with numbered badges (1..7).
+            - Real-time 14-step calibrated DPI tuning (`200` to `10,000 DPI`) for SunplusIT SPCP6662.
+            - Authentic game button preservation with safe Stage 6 masking and checksum recalculation.
+            - Built-in `.bin` to safe `.em624` profile conversion tool.
+          prerelease: true
+          make_latest: false
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
