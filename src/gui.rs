@@ -340,6 +340,54 @@ impl Icons {
     pub const SLIDERS: &'static str = "\u{f1de}"; // Sliders / DPI (nf-fa-sliders)
 }
 
+/// Creates a widget text with exact >= 8px spacing between Nerd Font icon and text
+pub fn icon_label(icon: &str, text: &str) -> egui::WidgetText {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        icon,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(14.0),
+            color: Color32::PLACEHOLDER,
+            ..Default::default()
+        },
+    );
+    job.append(
+        text,
+        8.0, // 8px guaranteed separation
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(14.0),
+            color: Color32::PLACEHOLDER,
+            ..Default::default()
+        },
+    );
+    egui::WidgetText::from(job)
+}
+
+/// Creates a widget text with exact >= 8px spacing and custom text color
+pub fn icon_label_colored(icon: &str, text: &str, color: Color32) -> egui::WidgetText {
+    let mut job = egui::text::LayoutJob::default();
+    job.append(
+        icon,
+        0.0,
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(14.0),
+            color,
+            ..Default::default()
+        },
+    );
+    job.append(
+        text,
+        8.0, // 8px guaranteed separation
+        egui::TextFormat {
+            font_id: egui::FontId::proportional(14.0),
+            color,
+            ..Default::default()
+        },
+    );
+    egui::WidgetText::from(job)
+}
+
 fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
@@ -1011,7 +1059,7 @@ impl eframe::App for Em624App {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .button(format!("{}   {}", Icons::REFRESH, Strings::check_connection(self.config.language)))
+                        .button(icon_label(Icons::REFRESH, Strings::check_connection(self.config.language)))
                         .clicked()
                     {
                         self.check_connection();
@@ -1053,15 +1101,11 @@ impl eframe::App for Em624App {
                                 4.0,
                                 Color32::from_rgb(46, 213, 115),
                             );
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{}   {}",
-                                    Icons::CHECK,
-                                    Strings::connected(self.config.language)
-                                ))
-                                .color(Color32::from_rgb(46, 213, 115))
-                                .strong(),
-                            );
+                            ui.label(icon_label_colored(
+                                Icons::CHECK,
+                                Strings::connected(self.config.language),
+                                Color32::from_rgb(46, 213, 115),
+                            ));
                         });
                     } else {
                         ui.horizontal(|ui| {
@@ -1072,15 +1116,11 @@ impl eframe::App for Em624App {
                                 4.0,
                                 Color32::from_rgb(255, 71, 87),
                             );
-                            ui.label(
-                                egui::RichText::new(format!(
-                                    "{}   {}",
-                                    Icons::TIMES,
-                                    Strings::disconnected(self.config.language)
-                                ))
-                                .color(Color32::from_rgb(255, 71, 87))
-                                .strong(),
-                            );
+                            ui.label(icon_label_colored(
+                                Icons::TIMES,
+                                Strings::disconnected(self.config.language),
+                                Color32::from_rgb(255, 71, 87),
+                            ));
                         });
                     }
                 });
@@ -1092,32 +1132,32 @@ impl eframe::App for Em624App {
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::GameMode,
-                    format!("{}   {}", Icons::GAMEPAD, Strings::tab_game(self.config.language)),
+                    icon_label(Icons::GAMEPAD, Strings::tab_game(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::OfficeMode,
-                    format!("{}   {}", Icons::BRIEFCASE, Strings::tab_office(self.config.language)),
+                    icon_label(Icons::BRIEFCASE, Strings::tab_office(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::LedLighting,
-                    format!("{}   {}", Icons::LIGHTBULB, Strings::tab_led(self.config.language)),
+                    icon_label(Icons::LIGHTBULB, Strings::tab_led(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::MacroManager,
-                    format!("{}   {}", Icons::CODE, Strings::tab_macro(self.config.language)),
+                    icon_label(Icons::CODE, Strings::tab_macro(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Advanced,
-                    format!("{}   {}", Icons::COGS, Strings::tab_advanced(self.config.language)),
+                    icon_label(Icons::COGS, Strings::tab_advanced(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Settings,
-                    format!("{}   {}", Icons::SETTINGS, Strings::tab_settings(self.config.language)),
+                    icon_label(Icons::SETTINGS, Strings::tab_settings(self.config.language)),
                 );
             });
             ui.add_space(6.0);
@@ -1128,27 +1168,24 @@ impl eframe::App for Em624App {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui
-                    .button(format!("{}   {}", Icons::DOWNLOAD, Strings::btn_read(self.config.language)))
+                    .button(icon_label(Icons::DOWNLOAD, Strings::btn_read(self.config.language)))
                     .clicked()
                 {
                     self.read_from_mouse();
                 }
 
+                let flash_btn_color = if self.config.theme == ThemeMode::LightWhite {
+                    Color32::WHITE
+                } else {
+                    Color32::BLACK
+                };
                 if ui
                     .add(
-                        egui::Button::new(
-                            egui::RichText::new(format!(
-                                "{}   {}",
-                                Icons::UPLOAD,
-                                Strings::btn_flash(self.config.language)
-                            ))
-                            .strong()
-                            .color(if self.config.theme == ThemeMode::LightWhite {
-                                Color32::WHITE
-                            } else {
-                                Color32::BLACK
-                            }),
-                        )
+                        egui::Button::new(icon_label_colored(
+                            Icons::UPLOAD,
+                            Strings::btn_flash(self.config.language),
+                            flash_btn_color,
+                        ))
                         .fill(pal.accent),
                     )
                     .clicked()
@@ -1161,27 +1198,24 @@ impl eframe::App for Em624App {
 
                     let is_gaming = self.profile.raw[0x00a4] == 0x01;
                     let mode_btn_text = if is_gaming {
-                        Strings::btn_mode_gaming(self.config.language)
+                        format!("{} [EXP]", Strings::btn_mode_gaming(self.config.language))
                     } else {
-                        Strings::btn_mode_office(self.config.language)
+                        format!("{} [EXP]", Strings::btn_mode_office(self.config.language))
                     };
                     let mode_icon = if is_gaming {
                         Icons::GAMEPAD
                     } else {
                         Icons::BRIEFCASE
                     };
+                    let mode_color = if is_gaming {
+                        Color32::from_rgb(0, 242, 254)
+                    } else {
+                        Color32::from_rgb(46, 213, 115)
+                    };
                     if ui
                         .add(
-                            egui::Button::new(
-                                egui::RichText::new(format!("{}   {} [EXP]", mode_icon, mode_btn_text))
-                                    .strong()
-                                    .color(if is_gaming {
-                                        Color32::from_rgb(0, 242, 254)
-                                    } else {
-                                        Color32::from_rgb(46, 213, 115)
-                                    }),
-                            )
-                            .stroke(Stroke::new(1.0_f32, pal.card_border)),
+                            egui::Button::new(icon_label_colored(mode_icon, &mode_btn_text, mode_color))
+                                .stroke(Stroke::new(1.0_f32, pal.card_border)),
                         )
                         .on_hover_text(
                             "Experimental Mode Switcher: Click to toggle between Gaming Mode (0x01) and Office Mode (0x00) and forward the reversed configuration report to mouse hardware immediately.",
@@ -1195,7 +1229,7 @@ impl eframe::App for Em624App {
                 ui.separator();
 
                 if ui
-                    .button(format!("{}   {}", Icons::FOLDER_OPEN, Strings::btn_load(self.config.language)))
+                    .button(icon_label(Icons::FOLDER_OPEN, Strings::btn_load(self.config.language)))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -1207,7 +1241,7 @@ impl eframe::App for Em624App {
                 }
 
                 if ui
-                    .button(format!("{}   {}", Icons::SAVE, Strings::btn_save(self.config.language)))
+                    .button(icon_label(Icons::SAVE, Strings::btn_save(self.config.language)))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -1839,18 +1873,14 @@ impl Em624App {
 
                 ui.add_space(10.0);
                 let sel_button_num = slot_idx_to_button_num(self.selected_slot);
-                let change_btn_text = format!(
-                    "{}   {}",
-                    Icons::KEYBOARD,
-                    Strings::change_key_bind_btn(lang, sel_button_num)
-                );
+                let change_btn_text = Strings::change_key_bind_btn(lang, sel_button_num);
                 let change_resp = ui.add_sized(
                     [col1_w, 36.0],
-                    egui::Button::new(
-                        egui::RichText::new(change_btn_text)
-                            .strong()
-                            .color(Color32::BLACK),
-                    )
+                    egui::Button::new(icon_label_colored(
+                        Icons::KEYBOARD,
+                        &change_btn_text,
+                        Color32::BLACK,
+                    ))
                     .fill(Color32::from_rgb(0, 242, 254)),
                 );
 
@@ -2575,24 +2605,19 @@ impl Em624App {
             ui.label(egui::RichText::new(Strings::dev_debug_desc(lang)).color(pal.text_secondary));
             ui.add_space(8.0);
 
+            let term_btn_color = if self.config.theme == ThemeMode::LightWhite {
+                Color32::WHITE
+            } else {
+                Color32::BLACK
+            };
             if ui
                 .add_sized(
                     [280.0, 32.0],
-                    egui::Button::new(
-                        egui::RichText::new(format!(
-                            "{}   {}",
-                            Icons::TERMINAL,
-                            Strings::launch_terminal_btn(lang)
-                        ))
-                        .strong()
-                        .color(
-                            if self.config.theme == ThemeMode::LightWhite {
-                                Color32::WHITE
-                            } else {
-                                Color32::BLACK
-                            },
-                        ),
-                    )
+                    egui::Button::new(icon_label_colored(
+                        Icons::TERMINAL,
+                        Strings::launch_terminal_btn(lang),
+                        term_btn_color,
+                    ))
                     .fill(pal.accent),
                 )
                 .clicked()
