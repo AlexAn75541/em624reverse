@@ -107,6 +107,9 @@ fn main() -> Result<()> {
                     .with_inner_size([880.0, 640.0])
                     .with_min_inner_size([700.0, 500.0])
                     .with_title("E-DRA EM624 Gaming Mouse Configurator"),
+                multisampling: 0,
+                depth_buffer: 0,
+                stencil_buffer: 0,
                 ..Default::default()
             };
             eframe::run_native(

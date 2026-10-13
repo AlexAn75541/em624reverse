@@ -77,6 +77,153 @@ pub struct ButtonBinding {
     pub description: String,
 }
 
+/// Translate USB HID Keyboard Usage (Usage Page 0x07) code to human-readable string
+pub fn format_hid_key_name(code: u8) -> &'static str {
+    match code {
+        0x04 => "A",
+        0x05 => "B",
+        0x06 => "C",
+        0x07 => "D",
+        0x08 => "E",
+        0x09 => "F",
+        0x0A => "G",
+        0x0B => "H",
+        0x0C => "I",
+        0x0D => "J",
+        0x0E => "K",
+        0x0F => "L",
+        0x10 => "M",
+        0x11 => "N",
+        0x12 => "O",
+        0x13 => "P",
+        0x14 => "Q",
+        0x15 => "R",
+        0x16 => "S",
+        0x17 => "T",
+        0x18 => "U",
+        0x19 => "V",
+        0x1A => "W",
+        0x1B => "X",
+        0x1C => "Y",
+        0x1D => "Z",
+        0x1E => "1",
+        0x1F => "2",
+        0x20 => "3",
+        0x21 => "4",
+        0x22 => "5",
+        0x23 => "6",
+        0x24 => "7",
+        0x25 => "8",
+        0x26 => "9",
+        0x27 => "0",
+        0x28 => "Enter",
+        0x29 => "Esc",
+        0x2A => "Backspace",
+        0x2B => "Tab",
+        0x2C => "Space",
+        0x2D => "- (Minus)",
+        0x2E => "= (Equals)",
+        0x2F => "[ (Left Bracket)",
+        0x30 => "] (Right Bracket)",
+        0x31 => "\\ (Backslash)",
+        0x32 => "# (Non-US)",
+        0x33 => "; (Semicolon)",
+        0x34 => "' (Quote)",
+        0x35 => "` (Grave Accent)",
+        0x36 => ", (Comma)",
+        0x37 => ". (Period)",
+        0x38 => "/ (Slash)",
+        0x39 => "Caps Lock",
+        0x3A => "F1",
+        0x3B => "F2",
+        0x3C => "F3",
+        0x3D => "F4",
+        0x3E => "F5",
+        0x3F => "F6",
+        0x40 => "F7",
+        0x41 => "F8",
+        0x42 => "F9",
+        0x43 => "F10",
+        0x44 => "F11",
+        0x45 => "F12",
+        0x46 => "Print Screen",
+        0x47 => "Scroll Lock",
+        0x48 => "Pause / Break",
+        0x49 => "Insert",
+        0x4A => "Home",
+        0x4B => "Page Up",
+        0x4C => "Delete",
+        0x4D => "End",
+        0x4E => "Page Down",
+        0x4F => "Right Arrow",
+        0x50 => "Left Arrow",
+        0x51 => "Down Arrow",
+        0x52 => "Up Arrow",
+        0x53 => "Num Lock",
+        0x54 => "Numpad /",
+        0x55 => "Numpad *",
+        0x56 => "Numpad -",
+        0x57 => "Numpad +",
+        0x58 => "Numpad Enter",
+        0x59 => "Numpad 1",
+        0x5A => "Numpad 2",
+        0x5B => "Numpad 3",
+        0x5C => "Numpad 4",
+        0x5D => "Numpad 5",
+        0x5E => "Numpad 6",
+        0x5F => "Numpad 7",
+        0x60 => "Numpad 8",
+        0x61 => "Numpad 9",
+        0x62 => "Numpad 0",
+        0x63 => "Numpad .",
+        0x64 => "\\ (Non-US)",
+        0x65 => "App / Menu",
+        0x68 => "F13",
+        0x69 => "F14",
+        0x6A => "F15",
+        0x6B => "F16",
+        0x6C => "F17",
+        0x6D => "F18",
+        0x6E => "F19",
+        0x6F => "F20",
+        0x70 => "F21",
+        0x71 => "F22",
+        0x72 => "F23",
+        0x73 => "F24",
+        0xE0 => "Left Ctrl",
+        0xE1 => "Left Shift",
+        0xE2 => "Left Alt",
+        0xE3 => "Left Win",
+        0xE4 => "Right Ctrl",
+        0xE5 => "Right Shift",
+        0xE6 => "Right Alt",
+        0xE7 => "Right Win",
+        _ => "Unknown Key",
+    }
+}
+
+/// Format modifier byte (bits: 0x01=Ctrl, 0x02=Shift, 0x04=Alt, 0x08=Win)
+pub fn format_modifiers(mod_byte: u8) -> String {
+    let mut parts = Vec::new();
+    if (mod_byte & 0x01) != 0 {
+        parts.push("Ctrl");
+    }
+    if (mod_byte & 0x02) != 0 {
+        parts.push("Shift");
+    }
+    if (mod_byte & 0x04) != 0 {
+        parts.push("Alt");
+    }
+    if (mod_byte & 0x08) != 0 {
+        parts.push("Win");
+    }
+    if parts.is_empty() {
+        String::new()
+    } else {
+        format!("{}+", parts.join("+"))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MouseProfile {
     pub raw: Vec<u8>,
@@ -255,32 +402,29 @@ impl MouseProfile {
                 other => format!("Mouse Button 0x{:02x}", other),
             },
             0x02 => {
-                let mod_str = match p1 {
-                    0x01 => "Ctrl+",
-                    0x02 => "Shift+",
-                    0x04 => "Alt+",
-                    0x08 => "Win+",
-                    0x0a => "Ctrl+Alt+",
-                    _ => "",
-                };
-                let key_name = match p2 {
-                    0x04..=0x1d => format!("{}", (b'A' + (p2 - 0x04)) as char),
-                    0x1e..=0x27 => format!("{}", (b'1' + (p2 - 0x1e)) as char),
-                    0x28 => "Enter".to_string(),
-                    0x29 => "Esc".to_string(),
-                    0x2a => "Backspace".to_string(),
-                    0x2b => "Tab".to_string(),
-                    0x2c => "Space".to_string(),
-                    _ => format!("0x{:02x}", p2),
-                };
-                format!("Key: {}{}", mod_str, key_name)
+                let mod_str = format_modifiers(p1);
+                let key_name = format_hid_key_name(p2);
+                if key_name == "Unknown Key" {
+                    format!("Key: {}0x{:02x}", mod_str, p2)
+                } else {
+                    format!("{}{}", mod_str, key_name)
+                }
             }
             0x03 => match p2 {
                 0xb5 => "Media: Next Track".to_string(),
                 0xb6 => "Media: Prev Track".to_string(),
+                0xb7 => "Media: Stop".to_string(),
                 0xcd => "Media: Play/Pause".to_string(),
+                0xe2 => "Media: Mute".to_string(),
                 0xe9 => "Media: Vol+".to_string(),
                 0xea => "Media: Vol-".to_string(),
+                0x81 => "Browser: Home".to_string(),
+                0x82 => "Browser: Refresh".to_string(),
+                0x83 => "Browser: Back".to_string(),
+                0x84 => "Browser: Forward".to_string(),
+                0x8a => "App: Mail".to_string(),
+                0x92 => "App: Calculator".to_string(),
+                0x94 => "App: My Computer".to_string(),
                 other => format!("Consumer 0x{:02x}", other),
             },
             0x06 => "CPI Loop".to_string(),
@@ -457,6 +601,21 @@ impl MouseProfile {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_format_hid_key_name_full_keyboard() {
+        assert_eq!(format_hid_key_name(0x4e), "Page Down");
+        assert_eq!(format_hid_key_name(0x4b), "Page Up");
+        assert_eq!(format_hid_key_name(0x2c), "Space");
+        assert_eq!(format_hid_key_name(0x28), "Enter");
+        assert_eq!(format_hid_key_name(0x58), "Numpad Enter");
+        assert_eq!(format_hid_key_name(0x59), "Numpad 1");
+        assert_eq!(format_hid_key_name(0x3a), "F1");
+        assert_eq!(format_hid_key_name(0x45), "F12");
+        assert_eq!(format_modifiers(0x01), "Ctrl+");
+        assert_eq!(format_modifiers(0x08), "Win+");
+        assert_eq!(format_modifiers(0x0a), "Shift+Win+");
+    }
 
     #[test]
     fn test_daily_use_checksums() {

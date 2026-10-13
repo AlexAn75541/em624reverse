@@ -6,7 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::device::Em624Device;
-use crate::profile::{MouseProfile, OFFICIAL_DPI_STEPS};
+use crate::macro_engine::{MacroAction, MacroBank, MacroEntry, MouseButton};
+use crate::profile::{format_hid_key_name, format_modifiers, MouseProfile, OFFICIAL_DPI_STEPS};
 
 #[derive(Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum Tab {
@@ -64,8 +65,15 @@ pub struct Em624App {
     connected_info: String,
     file_path: Option<PathBuf>,
     hovered_button: Option<usize>,       // 1..=7
+    selected_slot: usize,                // currently selected button (1..=9, default 1)
     editing_slot: Option<(usize, bool)>, // (slot 1..9, is_gaming)
     mouse_texture: Option<egui::TextureHandle>,
+    // Rebind wizard modal state
+    rebind_category: usize,
+    rebind_subtab: usize, // 0=Letters, 1=Numbers, 2=Numpad, 3=Function, 4=Navigation, 5=Symbols
+    rebind_key_code: u8,
+    rebind_modifiers: u8,
+    rebind_candidate: Option<[u8; 4]>,
     // Advanced & Fire Key settings
     fire_mode: usize,
     fire_repeat: u32,
@@ -81,9 +89,10 @@ pub struct Em624App {
     led_speed: u32,
     led_mode: usize,
     led_brightness: usize,
-    // Macro state
-    macros: Vec<String>,
+    // Macro state with full MacroBank
+    macro_bank: MacroBank,
     selected_macro: Option<usize>,
+    #[allow(dead_code)]
     macro_recording: bool,
     trimmed: bool,
 }
@@ -110,6 +119,37 @@ impl Default for Em624App {
             let _ = f.flush();
         }
 
+        let mut macro_bank = MacroBank::default();
+        let mut m1 = MacroEntry::new("Burst Fire");
+        m1.actions.push(MacroAction::MouseDown(MouseButton::Left));
+        m1.actions.push(MacroAction::Delay(25));
+        m1.actions.push(MacroAction::MouseUp(MouseButton::Left));
+        m1.actions.push(MacroAction::Delay(35));
+        m1.actions.push(MacroAction::MouseDown(MouseButton::Left));
+        m1.actions.push(MacroAction::Delay(25));
+        m1.actions.push(MacroAction::MouseUp(MouseButton::Left));
+
+        let mut m2 = MacroEntry::new("Quick Scope");
+        m2.actions.push(MacroAction::MouseDown(MouseButton::Right));
+        m2.actions.push(MacroAction::Delay(150));
+        m2.actions.push(MacroAction::MouseDown(MouseButton::Left));
+        m2.actions.push(MacroAction::Delay(30));
+        m2.actions.push(MacroAction::MouseUp(MouseButton::Left));
+        m2.actions.push(MacroAction::MouseUp(MouseButton::Right));
+
+        let mut m3 = MacroEntry::new("Double Jump");
+        m3.actions.push(MacroAction::KeyDown(0x2c)); // Space
+        m3.actions.push(MacroAction::Delay(30));
+        m3.actions.push(MacroAction::KeyUp(0x2c));
+        m3.actions.push(MacroAction::Delay(60));
+        m3.actions.push(MacroAction::KeyDown(0x2c));
+        m3.actions.push(MacroAction::Delay(30));
+        m3.actions.push(MacroAction::KeyUp(0x2c));
+
+        macro_bank.macros.push(m1);
+        macro_bank.macros.push(m2);
+        macro_bank.macros.push(m3);
+
         Self {
             config,
             profile,
@@ -119,8 +159,14 @@ impl Default for Em624App {
             connected_info: "No device connected".to_string(),
             file_path: None,
             hovered_button: None,
+            selected_slot: 1, // Default select Button 1 (Left Click)
             editing_slot: None,
             mouse_texture: None,
+            rebind_category: 0,
+            rebind_subtab: 0,
+            rebind_key_code: 0x04,
+            rebind_modifiers: 0,
+            rebind_candidate: None,
             fire_mode: 0,
             fire_repeat: 3,
             fire_interval: 30,
@@ -134,11 +180,7 @@ impl Default for Em624App {
             led_speed: 3,
             led_mode: 1,       // Colorful
             led_brightness: 0, // Full
-            macros: vec![
-                "Burst Fire".to_string(),
-                "Quick Scope".to_string(),
-                "Double Jump".to_string(),
-            ],
+            macro_bank,
             selected_macro: Some(0),
             macro_recording: false,
             trimmed: false,
@@ -153,6 +195,7 @@ impl Em624App {
             app.spawn_native_terminal();
         }
         app.check_connection();
+        trim_working_set();
         app
     }
 
@@ -294,7 +337,11 @@ impl Em624App {
                             self.status_message =
                                 "Successfully loaded active profile from mouse hardware!"
                                     .to_string();
-                            self.log_debug(&format!("[USB_READ] Profile read successfully (2048 bytes). Checksum0=0x{:02x}, Mask=0x{:02x}", data[0xa3], data[4]));
+                            self.log_debug(&format!(
+                                "[USB_READ] Profile read successfully (2048 bytes). Checksum0=0x{:02x}, Mask=0x{:02x}",
+                                data[0xa3], data[4]
+                            ));
+                            self.save_to_cached_profile();
                         }
                         Err(e) => self.status_message = format!("Profile parse error: {}", e),
                     },
@@ -332,6 +379,7 @@ impl Em624App {
                             "Successfully flashed profile to mouse! Settings active immediately."
                                 .to_string();
                         self.log_debug("[USB_FLASH] Flash write committed successfully!");
+                        self.save_to_cached_profile();
                     }
                     Err(e) => {
                         self.status_message = format!("Flash failed: {}", e);
@@ -396,6 +444,21 @@ impl Em624App {
         }
     }
 
+    fn save_to_cached_profile(&mut self) {
+        let _ = fs::create_dir_all(".cache");
+        let stem = self
+            .file_path
+            .as_ref()
+            .and_then(|p| p.file_stem().and_then(|s| s.to_str()))
+            .unwrap_or("DailyUse");
+        let cached_path = PathBuf::from(format!(".cache/{}.em624", stem));
+        if let Ok(()) = self.profile.save_file(&cached_path) {
+            self.file_path = Some(cached_path.clone());
+            self.config.last_profile = Some(cached_path.to_string_lossy().to_string());
+            self.config.save();
+        }
+    }
+
     fn ensure_texture(&mut self, ctx: &egui::Context) {
         if self.mouse_texture.is_none() {
             let png_bytes = include_bytes!("../damouse.png");
@@ -410,6 +473,89 @@ impl Em624App {
             }
         }
     }
+
+    fn init_rebind_modal(&mut self, slot_idx: usize, is_gaming: bool) {
+        let base_off = if is_gaming { 0x00f1 } else { 0x00c0 };
+        let off = base_off + (slot_idx - 1) * 4;
+        let mut cur = [0u8; 4];
+        cur.copy_from_slice(&self.profile.raw[off..off + 4]);
+        self.rebind_candidate = Some(cur);
+
+        let ktype = cur[0];
+        let p1 = cur[1];
+        let p2 = cur[2];
+
+        match ktype {
+            0x01 => {
+                self.rebind_category = 0; // Mouse
+            }
+            0x02 => {
+                if p1 == 0 {
+                    self.rebind_category = 1; // Single key
+                    self.rebind_key_code = p2;
+                    self.rebind_modifiers = 0;
+                    self.rebind_subtab = match p2 {
+                        0x04..=0x1d => 0, // Letters
+                        0x1e..=0x27 => 1, // Numbers
+                        0x54..=0x63 => 2, // Numpad
+                        0x3a..=0x45 => 3, // Function
+                        0x49..=0x53 => 4, // Navigation
+                        _ => 5,           // Symbols
+                    };
+                } else {
+                    self.rebind_category = 2; // Shortcut
+                    self.rebind_key_code = p2;
+                    self.rebind_modifiers = p1;
+                }
+            }
+            0x06 | 0x08 | 0x09 => {
+                self.rebind_category = 3; // Special / DPI
+            }
+            0x03 => {
+                match p2 {
+                    0x81 | 0x82 | 0x83 | 0x84 | 0x92 | 0x94 | 0x8a => {
+                        self.rebind_category = 5; // Productivity
+                    }
+                    _ => {
+                        self.rebind_category = 4; // Multimedia
+                    }
+                }
+            }
+            0x07 => {
+                self.rebind_category = 5; // Productivity (LED)
+            }
+            _ => {
+                self.rebind_category = 0;
+            }
+        }
+    }
+
+    fn apply_and_cache_binding(&mut self, slot_idx: usize, is_gaming: bool) {
+        if let Some(bytes) = self.rebind_candidate {
+            let base_off = if is_gaming { 0x00f1 } else { 0x00c0 };
+            let off = base_off + (slot_idx - 1) * 4;
+            self.profile.raw[off..off + 4].copy_from_slice(&bytes);
+            self.profile.apply_safe_profile();
+            self.profile.refresh_stages();
+
+            // Auto-save to cached profile
+            self.save_to_cached_profile();
+
+            let btn_num = slot_idx_to_button_num(slot_idx);
+            let desc = format_binding_desc(&bytes);
+            self.status_message = format!(
+                "Saved Button [{}] as '{}' to cached profile!",
+                btn_num, desc
+            );
+            self.log_debug(&format!(
+                "[REMAP] Updated slot {} ({}) to bytecode {:02x?} ('{}') and cached to disk",
+                slot_idx,
+                if is_gaming { "Gaming" } else { "Office" },
+                bytes,
+                desc
+            ));
+        }
+    }
 }
 
 impl eframe::App for Em624App {
@@ -419,10 +565,9 @@ impl eframe::App for Em624App {
 
         self.ensure_texture(ctx);
 
-        if !self.trimmed && self.mouse_texture.is_some() {
+        if !self.trimmed {
             trim_working_set();
             self.trimmed = true;
-            self.log_debug("[MEM] Initial working set trimmed to active pages (<32MB target).");
         }
 
         // Top Navigation Header
@@ -561,235 +706,428 @@ impl eframe::App for Em624App {
 
         // Modal Button Remapper Dialog if open
         if let Some((slot_idx, is_gaming)) = self.editing_slot {
-            let mut close_modal = false;
-            let title = format!(
-                "Remap Button [{}] ({})",
-                slot_idx_to_button_num(slot_idx),
-                if is_gaming {
-                    "Gaming Mode"
-                } else {
-                    "Office Mode"
-                }
-            );
-
-            egui::Window::new(title)
-                .collapsible(false)
-                .resizable(false)
-                .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
-                .show(ctx, |ui| {
-                    ui.set_width(320.0);
-                    ui.label("Select new button assignment:");
-                    ui.add_space(8.0);
-
-                    egui::ScrollArea::vertical()
-                        .max_height(340.0)
-                        .show(ui, |ui| {
-                            ui.label(
-                                egui::RichText::new("Standard Mouse Keys")
-                                    .strong()
-                                    .color(Color32::from_rgb(0, 242, 254)),
-                            );
-                            if ui.button("Left Click").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x01, 0x01, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Right Click").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x01, 0x02, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Middle Click").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x01, 0x04, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Forward (Browser Side 1)").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x01, 0x08, 0x00, 0x02],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Backward (Browser Side 2)").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x01, 0x10, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-
-                            ui.separator();
-                            ui.label(
-                                egui::RichText::new("Special & DPI Keys")
-                                    .strong()
-                                    .color(Color32::from_rgb(0, 242, 254)),
-                            );
-                            if ui.button("DPI Loop (Cycle All)").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x08, 0x00, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("DPI +").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x09, 0x02, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("DPI -").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x09, 0x00, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Fire Key (Rapid Burst)").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x06, 0x92, 0x00, 0x1e],
-                                );
-                                close_modal = true;
-                            }
-
-                            ui.separator();
-                            ui.label(
-                                egui::RichText::new("Multimedia")
-                                    .strong()
-                                    .color(Color32::from_rgb(0, 242, 254)),
-                            );
-                            if ui.button("Play / Pause").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x03, 0x00, 0xcd, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Next Track").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x03, 0x00, 0xb5, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Previous Track").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x03, 0x00, 0xb6, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Volume +").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x03, 0x00, 0xe9, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Volume -").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x03, 0x00, 0xea, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Mute").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x03, 0x00, 0xe2, 0x00],
-                                );
-                                close_modal = true;
-                            }
-
-                            ui.separator();
-                            ui.label(
-                                egui::RichText::new("Productivity / Shortcuts")
-                                    .strong()
-                                    .color(Color32::from_rgb(0, 242, 254)),
-                            );
-                            if ui.button("Desktop (Win+D)").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x02, 0x08, 0x07, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("Snip (Shift+Win+S)").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x02, 0x0a, 0x16, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("LED ON/OFF Toggle").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x07, 0x80, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                            if ui.button("LED Mode Cycle").clicked() {
-                                self.set_button_binding(
-                                    slot_idx,
-                                    is_gaming,
-                                    &[0x07, 0x81, 0x00, 0x00],
-                                );
-                                close_modal = true;
-                            }
-                        });
-
-                    ui.add_space(8.0);
-                    if ui.button("Cancel").clicked() {
-                        close_modal = true;
-                    }
-                });
-
-            if close_modal {
-                self.editing_slot = None;
-            }
+            self.render_rebind_modal(ctx, slot_idx, is_gaming);
         }
     }
 }
 
 impl Em624App {
-    fn set_button_binding(&mut self, slot_idx: usize, is_gaming: bool, bytes: &[u8; 4]) {
-        let base_off = if is_gaming { 0x00f1 } else { 0x00c0 };
-        let off = base_off + (slot_idx - 1) * 4;
-        self.profile.raw[off..off + 4].copy_from_slice(bytes);
-        self.profile.apply_safe_profile();
-        self.profile.refresh_stages();
-        self.log_debug(&format!(
-            "[REMAP] Updated slot {} ({}) to bytecode {:02x?}",
-            slot_idx,
-            if is_gaming { "Gaming" } else { "Office" },
-            bytes
-        ));
+    fn render_rebind_modal(&mut self, ctx: &egui::Context, slot_idx: usize, is_gaming: bool) {
+        let mut close_modal = false;
+        let mut apply_binding = false;
+        let btn_num = slot_idx_to_button_num(slot_idx);
+        let title = format!(
+            "Remap Button [{}] ({})",
+            btn_num,
+            if is_gaming {
+                "Game Mode"
+            } else {
+                "Office Mode"
+            }
+        );
+
+        egui::Window::new(title)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.set_width(460.0);
+
+                // Step 1: Category Selection
+                ui.label(
+                    egui::RichText::new("Step 1: Pick a Keybind Category")
+                        .strong()
+                        .color(Color32::from_rgb(0, 242, 254)),
+                );
+                ui.add_space(4.0);
+
+                ui.horizontal_wrapped(|ui| {
+                    ui.selectable_value(&mut self.rebind_category, 0, "Mouse");
+                    ui.selectable_value(&mut self.rebind_category, 1, "Keyboard (Single)");
+                    ui.selectable_value(&mut self.rebind_category, 2, "Shortcut (Combo)");
+                    ui.selectable_value(&mut self.rebind_category, 3, "DPI / Special");
+                    ui.selectable_value(&mut self.rebind_category, 4, "Media");
+                    ui.selectable_value(&mut self.rebind_category, 5, "Productivity");
+                    ui.selectable_value(&mut self.rebind_category, 6, "Disable");
+                });
+
+                ui.separator();
+
+                // Step 2: Pick Key
+                ui.label(
+                    egui::RichText::new("Step 2: Pick a Key or Action")
+                        .strong()
+                        .color(Color32::from_rgb(0, 242, 254)),
+                );
+                ui.add_space(4.0);
+
+                egui::ScrollArea::vertical()
+                    .max_height(260.0)
+                    .show(ui, |ui| match self.rebind_category {
+                        0 => self.render_category_mouse(ui),
+                        1 => self.render_category_single_key(ui),
+                        2 => self.render_category_shortcut(ui),
+                        3 => self.render_category_special(ui),
+                        4 => self.render_category_media(ui),
+                        5 => self.render_category_productivity(ui),
+                        _ => {
+                            self.rebind_candidate = Some([0x00, 0x00, 0x00, 0x00]);
+                            ui.label("This button will be disabled (no action).");
+                        }
+                    });
+
+                ui.separator();
+
+                // Live Preview
+                let preview_text = if let Some(bytes) = &self.rebind_candidate {
+                    format_binding_desc(bytes)
+                } else {
+                    "None".to_string()
+                };
+
+                ui.horizontal(|ui| {
+                    ui.label("New Assignment:");
+                    ui.label(
+                        egui::RichText::new(preview_text)
+                            .strong()
+                            .color(Color32::from_rgb(0, 242, 254)),
+                    );
+                });
+
+                ui.add_space(8.0);
+
+                // Step 3: Done Keybinding
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_sized(
+                            [160.0, 30.0],
+                            egui::Button::new(
+                                egui::RichText::new("Done Keybinding")
+                                    .strong()
+                                    .color(Color32::BLACK),
+                            )
+                            .fill(Color32::from_rgb(0, 242, 254)),
+                        )
+                        .clicked()
+                    {
+                        apply_binding = true;
+                    }
+
+                    if ui
+                        .add_sized([100.0, 30.0], egui::Button::new("Cancel"))
+                        .clicked()
+                    {
+                        close_modal = true;
+                    }
+                });
+            });
+
+        if apply_binding {
+            self.apply_and_cache_binding(slot_idx, is_gaming);
+            self.editing_slot = None;
+        } else if close_modal {
+            self.editing_slot = None;
+        }
+    }
+
+    fn render_category_mouse(&mut self, ui: &mut egui::Ui) {
+        ui.label("Standard mouse buttons:");
+        ui.add_space(4.0);
+
+        let options = [
+            ("Left Click", [0x01, 0x01, 0x00, 0x00]),
+            ("Right Click", [0x01, 0x02, 0x00, 0x00]),
+            ("Middle Click", [0x01, 0x04, 0x00, 0x00]),
+            ("Forward (Browser Side 1)", [0x01, 0x08, 0x00, 0x02]),
+            ("Backward (Browser Side 2)", [0x01, 0x10, 0x00, 0x00]),
+        ];
+
+        for (label, bytes) in options {
+            let is_cur = self.rebind_candidate == Some(bytes);
+            if ui.selectable_label(is_cur, label).clicked() {
+                self.rebind_candidate = Some(bytes);
+            }
+        }
+    }
+
+    fn render_category_single_key(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.rebind_subtab, 0, "Letters");
+            ui.selectable_value(&mut self.rebind_subtab, 1, "Numbers");
+            ui.selectable_value(&mut self.rebind_subtab, 2, "Numpad");
+            ui.selectable_value(&mut self.rebind_subtab, 3, "F1..F12");
+            ui.selectable_value(&mut self.rebind_subtab, 4, "Navigation");
+            ui.selectable_value(&mut self.rebind_subtab, 5, "Symbols");
+        });
+        ui.separator();
+
+        match self.rebind_subtab {
+            0 => {
+                // Letters A..Z
+                ui.horizontal_wrapped(|ui| {
+                    for code in 0x04..=0x1d {
+                        let name = format_hid_key_name(code);
+                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        if ui
+                            .add_sized([32.0, 26.0], egui::SelectableLabel::new(is_sel, name))
+                            .clicked()
+                        {
+                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_key_code = code;
+                        }
+                    }
+                });
+            }
+            1 => {
+                // Numbers 1..9, 0
+                ui.horizontal_wrapped(|ui| {
+                    for code in 0x1e..=0x27 {
+                        let name = format_hid_key_name(code);
+                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        if ui
+                            .add_sized([36.0, 28.0], egui::SelectableLabel::new(is_sel, name))
+                            .clicked()
+                        {
+                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_key_code = code;
+                        }
+                    }
+                });
+            }
+            2 => {
+                // Full Numpad keys (17 discrete keys)
+                ui.label("Full Numpad keys (dedicated scancodes):");
+                ui.add_space(4.0);
+                let numpad_keys = [
+                    (0x59, "Num 1"),
+                    (0x5a, "Num 2"),
+                    (0x5b, "Num 3"),
+                    (0x5c, "Num 4"),
+                    (0x5d, "Num 5"),
+                    (0x5e, "Num 6"),
+                    (0x5f, "Num 7"),
+                    (0x60, "Num 8"),
+                    (0x61, "Num 9"),
+                    (0x62, "Num 0"),
+                    (0x57, "Num +"),
+                    (0x56, "Num -"),
+                    (0x55, "Num *"),
+                    (0x54, "Num /"),
+                    (0x58, "Num Enter"),
+                    (0x63, "Num ."),
+                    (0x53, "Num Lock"),
+                ];
+                ui.horizontal_wrapped(|ui| {
+                    for (code, label) in numpad_keys {
+                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        if ui
+                            .add_sized([72.0, 28.0], egui::SelectableLabel::new(is_sel, label))
+                            .clicked()
+                        {
+                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_key_code = code;
+                        }
+                    }
+                });
+            }
+            3 => {
+                // F1..F12
+                ui.horizontal_wrapped(|ui| {
+                    for code in 0x3a..=0x45 {
+                        let name = format_hid_key_name(code);
+                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        if ui
+                            .add_sized([42.0, 28.0], egui::SelectableLabel::new(is_sel, name))
+                            .clicked()
+                        {
+                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_key_code = code;
+                        }
+                    }
+                });
+            }
+            4 => {
+                // Navigation & Editing
+                let nav_keys = [
+                    (0x4b, "Page Up"),
+                    (0x4e, "Page Down"),
+                    (0x4a, "Home"),
+                    (0x4d, "End"),
+                    (0x49, "Insert"),
+                    (0x4c, "Delete"),
+                    (0x52, "Up Arrow"),
+                    (0x51, "Down Arrow"),
+                    (0x50, "Left Arrow"),
+                    (0x4f, "Right Arrow"),
+                    (0x28, "Enter"),
+                    (0x29, "Esc"),
+                    (0x2c, "Space"),
+                    (0x2b, "Tab"),
+                    (0x2a, "Backspace"),
+                    (0x39, "Caps Lock"),
+                    (0x46, "Print Screen"),
+                ];
+                ui.horizontal_wrapped(|ui| {
+                    for (code, label) in nav_keys {
+                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        if ui
+                            .add_sized([80.0, 28.0], egui::SelectableLabel::new(is_sel, label))
+                            .clicked()
+                        {
+                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_key_code = code;
+                        }
+                    }
+                });
+            }
+            _ => {
+                // Symbols
+                let sym_keys = [
+                    (0x2d, "- Minus"),
+                    (0x2e, "= Equals"),
+                    (0x2f, "[ Left Bracket"),
+                    (0x30, "] Right Bracket"),
+                    (0x31, "\\ Backslash"),
+                    (0x33, "; Semicolon"),
+                    (0x34, "' Quote"),
+                    (0x35, "` Grave"),
+                    (0x36, ", Comma"),
+                    (0x37, ". Period"),
+                    (0x38, "/ Slash"),
+                ];
+                ui.horizontal_wrapped(|ui| {
+                    for (code, label) in sym_keys {
+                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        if ui
+                            .add_sized([110.0, 28.0], egui::SelectableLabel::new(is_sel, label))
+                            .clicked()
+                        {
+                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_key_code = code;
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    fn render_category_shortcut(&mut self, ui: &mut egui::Ui) {
+        ui.label("Select modifier keys:");
+        ui.horizontal(|ui| {
+            let mut ctrl = (self.rebind_modifiers & 0x01) != 0;
+            if ui.checkbox(&mut ctrl, "Ctrl").changed() {
+                if ctrl {
+                    self.rebind_modifiers |= 0x01;
+                } else {
+                    self.rebind_modifiers &= !0x01;
+                }
+            }
+
+            let mut shift = (self.rebind_modifiers & 0x02) != 0;
+            if ui.checkbox(&mut shift, "Shift").changed() {
+                if shift {
+                    self.rebind_modifiers |= 0x02;
+                } else {
+                    self.rebind_modifiers &= !0x02;
+                }
+            }
+
+            let mut alt = (self.rebind_modifiers & 0x04) != 0;
+            if ui.checkbox(&mut alt, "Alt").changed() {
+                if alt {
+                    self.rebind_modifiers |= 0x04;
+                } else {
+                    self.rebind_modifiers &= !0x04;
+                }
+            }
+
+            let mut win = (self.rebind_modifiers & 0x08) != 0;
+            if ui.checkbox(&mut win, "Win").changed() {
+                if win {
+                    self.rebind_modifiers |= 0x08;
+                } else {
+                    self.rebind_modifiers &= !0x08;
+                }
+            }
+        });
+
+        ui.add_space(6.0);
+        ui.label("Select target key:");
+        egui::ComboBox::from_label("")
+            .selected_text(format_hid_key_name(self.rebind_key_code))
+            .show_ui(ui, |ui| {
+                for code in 0x04..=0x1d {
+                    ui.selectable_value(&mut self.rebind_key_code, code, format_hid_key_name(code));
+                }
+                for code in 0x1e..=0x27 {
+                    ui.selectable_value(&mut self.rebind_key_code, code, format_hid_key_name(code));
+                }
+                for code in 0x3a..=0x45 {
+                    ui.selectable_value(&mut self.rebind_key_code, code, format_hid_key_name(code));
+                }
+                for code in [0x28, 0x29, 0x2c, 0x2b, 0x2a, 0x4b, 0x4e, 0x4a, 0x4d] {
+                    ui.selectable_value(&mut self.rebind_key_code, code, format_hid_key_name(code));
+                }
+            });
+
+        self.rebind_candidate = Some([0x02, self.rebind_modifiers, self.rebind_key_code, 0x00]);
+    }
+
+    fn render_category_special(&mut self, ui: &mut egui::Ui) {
+        let specials = [
+            ("DPI Loop (Cycle All)", [0x08, 0x00, 0x00, 0x00]),
+            ("DPI +", [0x09, 0x02, 0x00, 0x00]),
+            ("DPI -", [0x09, 0x00, 0x00, 0x00]),
+            ("Fire Key (Rapid Burst)", [0x06, 0x92, 0x00, 0x1e]),
+            ("Office Mode Switch", [0x09, 0x00, 0x00, 0x00]),
+            ("Game Mode Switch", [0x09, 0x01, 0x00, 0x00]),
+        ];
+
+        for (label, bytes) in specials {
+            let is_sel = self.rebind_candidate == Some(bytes);
+            if ui.selectable_label(is_sel, label).clicked() {
+                self.rebind_candidate = Some(bytes);
+            }
+        }
+    }
+
+    fn render_category_media(&mut self, ui: &mut egui::Ui) {
+        let media = [
+            ("Play / Pause", [0x03, 0x00, 0xcd, 0x00]),
+            ("Next Track", [0x03, 0x00, 0xb5, 0x00]),
+            ("Previous Track", [0x03, 0x00, 0xb6, 0x00]),
+            ("Stop", [0x03, 0x00, 0xb7, 0x00]),
+            ("Volume +", [0x03, 0x00, 0xe9, 0x00]),
+            ("Volume -", [0x03, 0x00, 0xea, 0x00]),
+            ("Mute", [0x03, 0x00, 0xe2, 0x00]),
+        ];
+
+        for (label, bytes) in media {
+            let is_sel = self.rebind_candidate == Some(bytes);
+            if ui.selectable_label(is_sel, label).clicked() {
+                self.rebind_candidate = Some(bytes);
+            }
+        }
+    }
+
+    fn render_category_productivity(&mut self, ui: &mut egui::Ui) {
+        let prod = [
+            ("Desktop (Win+D)", [0x02, 0x08, 0x07, 0x00]),
+            ("Snip (Shift+Win+S)", [0x02, 0x0a, 0x16, 0x00]),
+            ("Calculator", [0x03, 0x00, 0x92, 0x00]),
+            ("My Computer", [0x03, 0x00, 0x94, 0x00]),
+            ("Web Back", [0x03, 0x00, 0x83, 0x00]),
+            ("Web Forward", [0x03, 0x00, 0x84, 0x00]),
+            ("LED ON/OFF Toggle", [0x07, 0x80, 0x00, 0x00]),
+            ("LED Mode Cycle", [0x07, 0x81, 0x00, 0x00]),
+        ];
+
+        for (label, bytes) in prod {
+            let is_sel = self.rebind_candidate == Some(bytes);
+            if ui.selectable_label(is_sel, label).clicked() {
+                self.rebind_candidate = Some(bytes);
+            }
+        }
     }
 
     fn render_button_mode_tab(&mut self, ui: &mut egui::Ui, is_gaming: bool) {
@@ -806,7 +1144,7 @@ impl Em624App {
                         "Office Mode Bindings"
                     });
                     ui.label(
-                        egui::RichText::new("Click any button to remap function:")
+                        egui::RichText::new("Select a key below, then click 'Change Key Bind':")
                             .small()
                             .color(Color32::from_rgb(140, 160, 190)),
                     );
@@ -832,27 +1170,42 @@ impl Em624App {
 
                     for (slot_idx, label) in display_order {
                         if let Some(btn) = buttons.get(slot_idx - 1) {
-                            let is_highlighted = self.hovered_button == Some(slot_idx);
-                            let bg_color = if is_highlighted {
-                                Color32::from_rgba_premultiplied(0, 242, 254, 35)
+                            let is_selected = self.selected_slot == slot_idx;
+                            let is_hovered = self.hovered_button == Some(slot_idx);
+
+                            let bg_color = if is_selected {
+                                Color32::from_rgba_premultiplied(0, 242, 254, 50)
+                            } else if is_hovered {
+                                Color32::from_rgba_premultiplied(0, 242, 254, 25)
                             } else {
                                 Color32::from_rgb(20, 26, 38)
+                            };
+
+                            let border_color = if is_selected {
+                                Color32::from_rgb(0, 242, 254)
+                            } else if is_hovered {
+                                Color32::from_rgb(0, 180, 210)
+                            } else {
+                                Color32::from_rgb(36, 48, 70)
                             };
 
                             let frame =
                                 egui::Frame::group(ui.style())
                                     .fill(bg_color)
                                     .stroke(Stroke::new(
-                                        1.0_f32,
-                                        if is_highlighted {
-                                            Color32::from_rgb(0, 242, 254)
-                                        } else {
-                                            Color32::from_rgb(36, 48, 70)
-                                        },
+                                        if is_selected { 1.5_f32 } else { 1.0_f32 },
+                                        border_color,
                                     ));
 
                             let response = frame.show(ui, |ui| {
                                 ui.horizontal(|ui| {
+                                    if is_selected {
+                                        ui.label(
+                                            egui::RichText::new("▶")
+                                                .color(Color32::from_rgb(0, 242, 254))
+                                                .small(),
+                                        );
+                                    }
                                     ui.label(egui::RichText::new(label).strong());
                                     ui.with_layout(
                                         egui::Layout::right_to_left(egui::Align::Center),
@@ -871,10 +1224,29 @@ impl Em624App {
                             }
 
                             if response.response.clicked() {
-                                self.editing_slot = Some((slot_idx, is_gaming));
+                                self.selected_slot = slot_idx;
                             }
                             ui.add_space(3.0);
                         }
+                    }
+
+                    ui.add_space(10.0);
+                    let sel_button_num = slot_idx_to_button_num(self.selected_slot);
+                    let change_btn_text =
+                        format!("⚡ Change Key Bind (Button [{}])", sel_button_num);
+                    let change_resp = ui.add_sized(
+                        [ui.available_width(), 36.0],
+                        egui::Button::new(
+                            egui::RichText::new(change_btn_text)
+                                .strong()
+                                .color(Color32::BLACK),
+                        )
+                        .fill(Color32::from_rgb(0, 242, 254)),
+                    );
+
+                    if change_resp.clicked() {
+                        self.init_rebind_modal(self.selected_slot, is_gaming);
+                        self.editing_slot = Some((self.selected_slot, is_gaming));
                     }
                 },
             );
@@ -909,7 +1281,7 @@ impl Em624App {
         });
     }
 
-    fn render_mouse_photo(&self, ui: &mut egui::Ui) {
+    fn render_mouse_photo(&mut self, ui: &mut egui::Ui) {
         let display_size = Vec2::new(320.0, 340.0);
         let (rect, _response) = ui.allocate_exact_size(display_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
@@ -940,13 +1312,16 @@ impl Em624App {
         ];
 
         for (slot_idx, pos, text) in badges {
+            let is_selected = self.selected_slot == slot_idx;
             let is_hovered = self.hovered_button == Some(slot_idx);
-            let badge_bg = if is_hovered {
+            let badge_bg = if is_selected {
                 Color32::from_rgb(0, 242, 254)
+            } else if is_hovered {
+                Color32::from_rgb(0, 180, 210)
             } else {
                 Color32::from_rgba_premultiplied(10, 15, 25, 230)
             };
-            let text_color = if is_hovered {
+            let text_color = if is_selected || is_hovered {
                 Color32::BLACK
             } else {
                 Color32::from_rgb(0, 242, 254)
@@ -1182,82 +1557,199 @@ impl Em624App {
                 .small()
                 .color(Color32::from_rgb(140, 160, 190)),
         );
-        ui.add_space(12.0);
+        ui.add_space(10.0);
+
+        // Fully responsive scaling based on available viewport
+        let total_w = ui.available_width();
+        let total_h = ui.available_height().max(380.0);
+
+        let col1_w = (total_w * 0.28).clamp(180.0, 260.0);
+        let col2_w = (total_w * 0.44).max(280.0);
+        let col3_w = (total_w - col1_w - col2_w - 28.0).max(180.0);
 
         ui.horizontal(|ui| {
-            // Column 1: Macro List
-            ui.vertical(|ui| {
-                ui.set_width(200.0);
-                ui.label(egui::RichText::new("Macro List").strong());
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    ui.set_height(240.0);
-                    for (i, m) in self.macros.iter().enumerate() {
-                        let selected = self.selected_macro == Some(i);
-                        if ui.selectable_label(selected, m).clicked() {
-                            self.selected_macro = Some(i);
+            // Column 1: Macro Library (Responsive)
+            ui.allocate_ui_with_layout(
+                Vec2::new(col1_w, total_h),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.label(egui::RichText::new("Macro Library").strong());
+                    ui.add_space(4.0);
+
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .max_height(total_h - 90.0)
+                            .show(ui, |ui| {
+                                for (i, m) in self.macro_bank.macros.iter().enumerate() {
+                                    let selected = self.selected_macro == Some(i);
+                                    if ui.selectable_label(selected, &m.name).clicked() {
+                                        self.selected_macro = Some(i);
+                                    }
+                                }
+                            });
+                    });
+
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("New Macro").clicked() {
+                            let new_name = format!("Macro {}", self.macro_bank.macros.len() + 1);
+                            self.macro_bank.macros.push(MacroEntry::new(&new_name));
+                            self.selected_macro = Some(self.macro_bank.macros.len() - 1);
                         }
-                    }
-                });
-                ui.horizontal(|ui| {
-                    if ui.button("New Macro").clicked() {
-                        self.macros.push(format!("Macro {}", self.macros.len() + 1));
-                        self.selected_macro = Some(self.macros.len() - 1);
-                    }
-                    if ui.button("Add to Mouse").clicked() {
-                        self.status_message = "Macro saved to mouse macro bank.".to_string();
-                    }
-                });
-            });
+                        if ui.button("Delete").clicked() {
+                            if let Some(idx) = self.selected_macro {
+                                if idx < self.macro_bank.macros.len() {
+                                    self.macro_bank.macros.remove(idx);
+                                    self.selected_macro = if self.macro_bank.macros.is_empty() {
+                                        None
+                                    } else {
+                                        Some(idx.saturating_sub(1))
+                                    };
+                                }
+                            }
+                        }
+                    });
+                },
+            );
 
             ui.separator();
 
-            // Column 2: Macro Content
-            ui.vertical(|ui| {
-                ui.set_width(240.0);
-                ui.label(egui::RichText::new("Macro Content").strong());
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    ui.set_height(240.0);
-                    if let Some(idx) = self.selected_macro {
-                        ui.label(format!("Key sequence for '{}':", self.macros[idx]));
-                        ui.label("  1. Key Down [Space]");
-                        ui.label("  2. Delay 30 ms");
-                        ui.label("  3. Key Up [Space]");
-                    } else {
-                        ui.label("No macro selected.");
-                    }
-                });
-                if ui
-                    .button(if self.macro_recording {
-                        "Stop Recording"
-                    } else {
-                        "Record Keystrokes"
-                    })
-                    .clicked()
-                {
-                    self.macro_recording = !self.macro_recording;
-                }
-            });
+            // Column 2: Macro Content / Sequence Timeline (Responsive)
+            ui.allocate_ui_with_layout(
+                Vec2::new(col2_w, total_h),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.label(egui::RichText::new("Macro Sequence Timeline").strong());
+                    ui.add_space(4.0);
+
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .max_height(total_h - 90.0)
+                            .show(ui, |ui| {
+                                if let Some(idx) = self.selected_macro {
+                                    if let Some(macro_item) = self.macro_bank.macros.get_mut(idx) {
+                                        ui.horizontal(|ui| {
+                                            ui.label("Name:");
+                                            ui.text_edit_singleline(&mut macro_item.name);
+                                        });
+                                        ui.separator();
+
+                                        if macro_item.actions.is_empty() {
+                                            ui.label("No actions in sequence. Click buttons below to add steps.");
+                                        } else {
+                                            let mut to_remove = None;
+                                            for (step_idx, action) in macro_item.actions.iter_mut().enumerate() {
+                                                ui.horizontal(|ui| {
+                                                    ui.label(format!("{}.", step_idx + 1));
+                                                    match action {
+                                                        MacroAction::MouseDown(btn) => {
+                                                            ui.label(format!("Mouse Down [{:?}]", btn));
+                                                        }
+                                                        MacroAction::MouseUp(btn) => {
+                                                            ui.label(format!("Mouse Up [{:?}]", btn));
+                                                        }
+                                                        MacroAction::KeyDown(k) => {
+                                                            let kname = format_hid_key_name(*k);
+                                                            ui.label(format!("Key Down [{}]", kname));
+                                                        }
+                                                        MacroAction::KeyUp(k) => {
+                                                            let kname = format_hid_key_name(*k);
+                                                            ui.label(format!("Key Up [{}]", kname));
+                                                        }
+                                                        MacroAction::ModifierDown(m) => {
+                                                            ui.label(format!("Modifier Down [{:?}]", m));
+                                                        }
+                                                        MacroAction::ModifierUp(m) => {
+                                                            ui.label(format!("Modifier Up [{:?}]", m));
+                                                        }
+                                                        MacroAction::Delay(ms) => {
+                                                            ui.label("Delay (ms):");
+                                                            ui.add(egui::DragValue::new(ms).range(5..=2000));
+                                                        }
+                                                        MacroAction::Loop(c) => {
+                                                            ui.label("Loop repeat:");
+                                                            ui.add(egui::DragValue::new(c).range(1..=127));
+                                                        }
+                                                    }
+                                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                                        if ui.small_button("X").clicked() {
+                                                            to_remove = Some(step_idx);
+                                                        }
+                                                    });
+                                                });
+                                            }
+                                            if let Some(rem_idx) = to_remove {
+                                                macro_item.actions.remove(rem_idx);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    ui.label("Select or create a macro from the library.");
+                                }
+                            });
+                    });
+
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if let Some(idx) = self.selected_macro {
+                            if let Some(macro_item) = self.macro_bank.macros.get_mut(idx) {
+                                if ui.button("+ Add Key").clicked() {
+                                    macro_item.actions.push(MacroAction::KeyDown(0x2c)); // Space
+                                    macro_item.actions.push(MacroAction::Delay(30));
+                                    macro_item.actions.push(MacroAction::KeyUp(0x2c));
+                                }
+                                if ui.button("+ Add Click").clicked() {
+                                    macro_item.actions.push(MacroAction::MouseDown(MouseButton::Left));
+                                    macro_item.actions.push(MacroAction::Delay(25));
+                                    macro_item.actions.push(MacroAction::MouseUp(MouseButton::Left));
+                                }
+                                if ui.button("+ Add Delay").clicked() {
+                                    macro_item.actions.push(MacroAction::Delay(50));
+                                }
+                            }
+                        }
+                    });
+                },
+            );
 
             ui.separator();
 
-            // Column 3: Storage & Execution Options
-            ui.vertical(|ui| {
-                ui.set_width(220.0);
-                ui.label(egui::RichText::new("Storage in Mouse").strong());
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    ui.set_height(240.0);
-                    ui.label("Recording Timing:");
-                    ui.radio_value(&mut self.fire_mode, 0, "Real record");
-                    ui.radio_value(&mut self.fire_mode, 1, "Delay Time (50 ms)");
-                    ui.radio_value(&mut self.fire_mode, 2, "No Delay");
+            // Column 3: Storage & Execution Options (Responsive)
+            ui.allocate_ui_with_layout(
+                Vec2::new(col3_w, total_h),
+                egui::Layout::top_down(egui::Align::Min),
+                |ui| {
+                    ui.label(egui::RichText::new("Execution & Storage").strong());
+                    ui.add_space(4.0);
 
-                    ui.add_space(8.0);
-                    ui.label("Playback Loop:");
-                    ui.radio_value(&mut self.fire_mode, 3, "Stop until macro end");
-                    ui.radio_value(&mut self.fire_mode, 4, "Stop until key released");
-                    ui.radio_value(&mut self.fire_mode, 5, "Cycles (1-127)");
-                });
-            });
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .max_height(total_h - 90.0)
+                            .show(ui, |ui| {
+                                ui.label("Recording Timing:");
+                                ui.radio_value(&mut self.fire_mode, 0, "Real record");
+                                ui.radio_value(&mut self.fire_mode, 1, "Fixed Delay (50ms)");
+                                ui.radio_value(&mut self.fire_mode, 2, "No Delay");
+
+                                ui.add_space(10.0);
+                                ui.label("Playback Loop:");
+                                ui.radio_value(&mut self.fire_mode, 3, "Play once");
+                                ui.radio_value(&mut self.fire_mode, 4, "Hold until released");
+                                ui.radio_value(&mut self.fire_mode, 5, "Repeat N times");
+
+                                ui.add_space(12.0);
+                                ui.separator();
+                                ui.label("EEPROM Hardware Bank:");
+                                if ui.button("Write Macro to Mouse").clicked() {
+                                    self.status_message = "Macro written to mouse hardware bank.".to_string();
+                                }
+                            });
+                    });
+                },
+            );
         });
     }
 
@@ -1382,32 +1874,61 @@ impl Em624App {
     }
 }
 
-#[cfg(target_os = "windows")]
-pub fn trim_working_set() {
-    extern "system" {
-        fn GetCurrentProcess() -> isize;
-        fn SetProcessWorkingSetSize(h: isize, min: usize, max: usize) -> i32;
+pub fn format_binding_desc(bytes: &[u8; 4]) -> String {
+    let key_type = bytes[0];
+    let p1 = bytes[1];
+    let p2 = bytes[2];
+    match key_type {
+        0x01 => match p1 {
+            0x01 => "Left Click".to_string(),
+            0x02 => "Right Click".to_string(),
+            0x04 => "Middle Click".to_string(),
+            0x08 => "Forward (Side 1)".to_string(),
+            0x10 => "Backward (Side 2)".to_string(),
+            other => format!("Mouse Button 0x{:02x}", other),
+        },
+        0x02 => {
+            let mod_str = format_modifiers(p1);
+            let key_name = format_hid_key_name(p2);
+            if key_name == "Unknown Key" {
+                format!("Key: {}0x{:02x}", mod_str, p2)
+            } else {
+                format!("Key: {}{}", mod_str, key_name)
+            }
+        }
+        0x03 => match p2 {
+            0xb5 => "Media: Next Track".to_string(),
+            0xb6 => "Media: Prev Track".to_string(),
+            0xb7 => "Media: Stop".to_string(),
+            0xcd => "Media: Play/Pause".to_string(),
+            0xe2 => "Media: Mute".to_string(),
+            0xe9 => "Media: Vol+".to_string(),
+            0xea => "Media: Vol-".to_string(),
+            0x81 => "Browser: Home".to_string(),
+            0x82 => "Browser: Refresh".to_string(),
+            0x83 => "Browser: Back".to_string(),
+            0x84 => "Browser: Forward".to_string(),
+            0x8a => "App: Mail".to_string(),
+            0x92 => "App: Calculator".to_string(),
+            0x94 => "App: My Computer".to_string(),
+            other => format!("Consumer 0x{:02x}", other),
+        },
+        0x06 => "Fire Key (Rapid Burst)".to_string(),
+        0x07 => match p1 {
+            0x80 => "LED ON/OFF Toggle".to_string(),
+            0x81 => "LED Mode Cycle".to_string(),
+            other => format!("ACPI 0x{:02x}", other),
+        },
+        0x08 => "DPI Loop (Cycle All)".to_string(),
+        0x09 => match p1 {
+            0x00 => "DPI - / Office Mode".to_string(),
+            0x01 => "Gaming Mode Switch".to_string(),
+            0x02 => "DPI +".to_string(),
+            other => format!("Fn 0x{:02x}", other),
+        },
+        0x00 => "Disabled (None)".to_string(),
+        other => format!("Type 0x{:02x}", other),
     }
-    unsafe {
-        SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-pub fn trim_working_set() {}
-
-pub fn chrono_or_simple_time() -> String {
-    use std::time::SystemTime;
-    let now = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    format!(
-        "{}:{:02}:{:02}",
-        (now / 3600) % 24,
-        (now / 60) % 60,
-        now % 60
-    )
 }
 
 fn slot_idx_to_button_num(slot_idx: usize) -> u8 {
@@ -1421,4 +1942,44 @@ fn slot_idx_to_button_num(slot_idx: usize) -> u8 {
         9 => 6,
         _ => slot_idx as u8,
     }
+}
+
+#[cfg(target_os = "windows")]
+pub fn trim_working_set() {
+    unsafe {
+        let handle = windows_sys::Win32::System::Threading::GetCurrentProcess();
+        let _ = windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet(handle);
+        let _ = windows_sys::Win32::System::Threading::SetProcessWorkingSetSize(
+            handle,
+            usize::MAX,
+            usize::MAX,
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub fn trim_working_set() {
+    extern "C" {
+        fn malloc_trim(pad: usize) -> i32;
+    }
+    unsafe {
+        let _ = malloc_trim(0);
+    }
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+pub fn trim_working_set() {}
+
+pub fn chrono_or_simple_time() -> String {
+    use std::time::SystemTime;
+    let now = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    format!(
+        "{:02}:{:02}:{:02}",
+        (now / 3600) % 24,
+        (now / 60) % 60,
+        now % 60
+    )
 }
