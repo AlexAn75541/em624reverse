@@ -17,6 +17,11 @@ pub const PROFILE_SIZE: usize = 2048;
 pub const CHUNK_SIZE: usize = 7;
 pub const TOTAL_CHUNKS: usize = 293;
 
+pub struct InputDevice {
+    pub device: HidDevice,
+    pub interface_name: String,
+}
+
 pub struct Em624Device {
     device: HidDevice,
     pub vid: u16,
@@ -113,6 +118,46 @@ impl Em624Device {
             .get_feature_report(buf)
             .context("Failed to read HID feature report from mouse")?;
         Ok(len)
+    }
+
+    /// Open available input endpoints (MI_00 mouse, MI_01 hotkeys/consumer) for live hardware listening
+    pub fn open_input_endpoints(api: &HidApi) -> Result<Vec<InputDevice>> {
+        let mut endpoints = Vec::new();
+        for dev in api.device_list() {
+            if dev.vendor_id() == DEFAULT_VID && dev.product_id() == DEFAULT_PID {
+                let path = dev.path().to_string_lossy().to_string();
+                let iface_desc = if dev.interface_number() == 0 {
+                    "MI_00 (Mouse Movement & Physical Buttons)".to_string()
+                } else if path.contains("&col01") {
+                    "MI_01:Col01 (Keyboard Hotkeys & Macros)".to_string()
+                } else if path.contains("&col02") {
+                    "MI_01:Col02 (Multimedia / Consumer Keys)".to_string()
+                } else if path.contains("&col03") {
+                    "MI_01:Col03 (System Power / Sleep Keys)".to_string()
+                } else if path.contains("&col04") || dev.usage_page() == 0xff00 {
+                    "MI_01:Col04 (Vendor Config / Feature Reports)".to_string()
+                } else {
+                    format!(
+                        "Interface {} (Usage Page 0x{:04x})",
+                        dev.interface_number(),
+                        dev.usage_page()
+                    )
+                };
+
+                if let Ok(device) = dev.open_device(api) {
+                    endpoints.push(InputDevice {
+                        device,
+                        interface_name: iface_desc,
+                    });
+                }
+            }
+        }
+
+        if endpoints.is_empty() {
+            bail!("No connected EM624 mouse interfaces could be opened for live input listening.");
+        }
+
+        Ok(endpoints)
     }
 
     /// Flash an entire 2048-byte configuration profile to mouse memory

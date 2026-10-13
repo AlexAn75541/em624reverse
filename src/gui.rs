@@ -85,6 +85,7 @@ pub struct Em624App {
     macros: Vec<String>,
     selected_macro: Option<usize>,
     macro_recording: bool,
+    trimmed: bool,
 }
 
 impl Default for Em624App {
@@ -140,6 +141,7 @@ impl Default for Em624App {
             ],
             selected_macro: Some(0),
             macro_recording: false,
+            trimmed: false,
         }
     }
 }
@@ -416,6 +418,12 @@ impl eframe::App for Em624App {
         ctx.set_visuals(egui::Visuals::dark());
 
         self.ensure_texture(ctx);
+
+        if !self.trimmed && self.mouse_texture.is_some() {
+            trim_working_set();
+            self.trimmed = true;
+            self.log_debug("[MEM] Initial working set trimmed to active pages (<32MB target).");
+        }
 
         // Top Navigation Header
         egui::TopBottomPanel::top("top_header").show(ctx, |ui| {
@@ -1373,6 +1381,20 @@ impl Em624App {
         });
     }
 }
+
+#[cfg(target_os = "windows")]
+pub fn trim_working_set() {
+    extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn SetProcessWorkingSetSize(h: isize, min: usize, max: usize) -> i32;
+    }
+    unsafe {
+        SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn trim_working_set() {}
 
 pub fn chrono_or_simple_time() -> String {
     use std::time::SystemTime;
