@@ -107,11 +107,19 @@ jobs:
           cd ..
           ls -lh em624-linux-x64.zip
 
-      - name: Upload Package Artifact
+      - name: Upload Windows Package Artifact
+        if: matrix.platform == 'windows'
         uses: actions/upload-artifact@v4
         with:
-          name: package-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ${{ matrix.platform == 'windows' && format('em624-windows-{0}.zip', matrix.arch) || 'em624-linux-x64.zip' }}
+          name: package-windows-${{ matrix.arch }}
+          path: em624-windows-${{ matrix.arch }}.zip
+
+      - name: Upload Linux Package Artifact
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-linux-x64
+          path: em624-linux-x64.zip
 
   prerelease:
     name: Publish Pre-Release
