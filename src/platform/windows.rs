@@ -35,6 +35,10 @@ const RI_MOUSE_WHEEL: u16 = 0x0400;
 
 pub fn trim_working_set() {
     unsafe {
+        let heap = windows_sys::Win32::System::Memory::GetProcessHeap();
+        if heap != 0 {
+            let _ = windows_sys::Win32::System::Memory::HeapCompact(heap, 0);
+        }
         let handle = windows_sys::Win32::System::Threading::GetCurrentProcess();
         let _ = windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet(handle);
         let _ = windows_sys::Win32::System::Threading::SetProcessWorkingSetSize(

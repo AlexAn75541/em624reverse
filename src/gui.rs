@@ -191,6 +191,8 @@ pub struct Em624App {
     #[allow(dead_code)]
     macro_recording: bool,
     trimmed: bool,
+    frame_count: u64,
+    last_trim_instant: std::time::Instant,
     device_rx: std::sync::mpsc::Receiver<crate::platform::DeviceStatus>,
     custom_dir_input: String,
     custom_dir_error: Option<String>,
@@ -297,6 +299,8 @@ impl Default for Em624App {
             selected_macro: Some(0),
             macro_recording: false,
             trimmed: false,
+            frame_count: 0,
+            last_trim_instant: std::time::Instant::now(),
             device_rx,
             custom_dir_input,
             custom_dir_error: None,
@@ -736,8 +740,10 @@ impl Em624App {
         if self.mouse_texture.is_none() {
             let png_bytes = include_bytes!("../damouse.png");
             if let Ok(img) = image::load_from_memory(png_bytes) {
-                let rgba = img.to_rgba8();
-                let size = [rgba.width() as usize, rgba.height() as usize];
+                // Downsample to exact rendered dimensions (320x340) for aggressive RAM optimization
+                let resized = img.resize_exact(320, 340, image::imageops::FilterType::Triangle);
+                let rgba = resized.to_rgba8();
+                let size = [320, 340];
                 let pixels = rgba.into_raw();
                 let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
                 let texture =
@@ -878,8 +884,16 @@ impl eframe::App for Em624App {
 
         self.ensure_texture(ctx);
 
-        if !self.trimmed {
+        self.frame_count = self.frame_count.wrapping_add(1);
+        let now = std::time::Instant::now();
+        // Aggressive RAM optimization:
+        // Flush memory during initial frame setup (frames 1..10) and then every 3 seconds
+        if self.frame_count <= 10
+            || now.duration_since(self.last_trim_instant).as_secs() >= 3
+            || !self.trimmed
+        {
             trim_working_set();
+            self.last_trim_instant = now;
             self.trimmed = true;
         }
 
@@ -900,6 +914,14 @@ impl eframe::App for Em624App {
 
                 // Distinct unfinished badge next to window title
                 match self.active_tab {
+                    Tab::Advanced => {
+                        ui.label(
+                            egui::RichText::new("• ADVANCED SETTINGS [UNFINISHED]")
+                                .small()
+                                .strong()
+                                .color(Color32::from_rgb(255, 170, 0)),
+                        );
+                    }
                     Tab::LedLighting => {
                         ui.label(
                             egui::RichText::new("• LED LIGHTING [UNFINISHED]")
@@ -1076,14 +1098,18 @@ impl eframe::App for Em624App {
             ui.add_space(6.0);
         });
 
-        // Central Content Area
-        egui::CentralPanel::default().show(ctx, |ui| match self.active_tab {
-            Tab::GameMode => self.render_button_mode_tab(ui, true),
-            Tab::OfficeMode => self.render_button_mode_tab(ui, false),
-            Tab::Advanced => self.render_advanced_tab(ui),
-            Tab::LedLighting => self.render_led_tab(ui),
-            Tab::MacroManager => self.render_macro_tab(ui),
-            Tab::Settings => self.render_settings_tab(ui),
+        // Central Content Area (Fully responsive ScrollArea for all tabs)
+        egui::CentralPanel::default().show(ctx, |ui| {
+            egui::ScrollArea::both()
+                .auto_shrink([false, false])
+                .show(ui, |ui| match self.active_tab {
+                    Tab::GameMode => self.render_button_mode_tab(ui, true),
+                    Tab::OfficeMode => self.render_button_mode_tab(ui, false),
+                    Tab::Advanced => self.render_advanced_tab(ui),
+                    Tab::LedLighting => self.render_led_tab(ui),
+                    Tab::MacroManager => self.render_macro_tab(ui),
+                    Tab::Settings => self.render_settings_tab(ui),
+                });
         });
 
         // Modal Button Remapper Dialog if open
@@ -1514,184 +1540,174 @@ impl Em624App {
 
     fn render_button_mode_tab(&mut self, ui: &mut egui::Ui, is_gaming: bool) {
         ui.horizontal(|ui| {
-            // Left Column: Button List (Fixed 340px width)
-            ui.allocate_ui_with_layout(
-                Vec2::new(340.0, ui.available_height()),
-                egui::Layout::top_down(egui::Align::Min),
-                |ui| {
-                    ui.add_space(4.0);
-                    ui.heading(if is_gaming {
-                        "Gaming Mode Bindings"
-                    } else {
-                        "Office Mode Bindings"
-                    });
-                    ui.label(
-                        egui::RichText::new("Select a key below, then click 'Change Key Bind':")
-                            .small()
-                            .color(Color32::from_rgb(140, 160, 190)),
-                    );
-                    ui.add_space(8.0);
+            // Left Column: Button List (Fixed 340px width, fully scrollable)
+            ui.vertical(|ui| {
+                ui.set_width(340.0);
+                ui.add_space(4.0);
+                ui.heading(if is_gaming {
+                    "Gaming Mode Bindings"
+                } else {
+                    "Office Mode Bindings"
+                });
+                ui.label(
+                    egui::RichText::new("Select a key below, then click 'Change Key Bind':")
+                        .small()
+                        .color(Color32::from_rgb(140, 160, 190)),
+                );
+                ui.add_space(8.0);
 
-                    let buttons = if is_gaming {
-                        &self.profile.gaming_buttons
-                    } else {
-                        &self.profile.office_buttons
-                    };
+                let buttons = if is_gaming {
+                    &self.profile.gaming_buttons
+                } else {
+                    &self.profile.office_buttons
+                };
 
-                    self.hovered_button = None;
+                self.hovered_button = None;
 
-                    let display_order = [
-                        (1, "[1] Left Click"),
-                        (4, "[2] Right Click"),
-                        (7, "[3] Middle Click"),
-                        (2, "[4] Forward (Side 1)"),
-                        (5, "[5] Backward (Side 2)"),
-                        (9, "[6] DPI + (Top Front)"),
-                        (8, "[7] DPI - (Top Back)"),
-                    ];
+                let display_order = [
+                    (1, "[1] Left Click"),
+                    (4, "[2] Right Click"),
+                    (7, "[3] Middle Click"),
+                    (2, "[4] Forward (Side 1)"),
+                    (5, "[5] Backward (Side 2)"),
+                    (9, "[6] DPI + (Top Front)"),
+                    (8, "[7] DPI - (Top Back)"),
+                ];
 
-                    let card_w = ui.available_width();
-                    for (slot_idx, label) in display_order {
-                        if let Some(btn) = buttons.get(slot_idx - 1) {
-                            let is_selected = self.selected_slot == slot_idx;
-                            let is_hovered = self.hovered_button == Some(slot_idx);
+                let card_w = ui.available_width();
+                for (slot_idx, label) in display_order {
+                    if let Some(btn) = buttons.get(slot_idx - 1) {
+                        let is_selected = self.selected_slot == slot_idx;
+                        let is_hovered = self.hovered_button == Some(slot_idx);
 
-                            // Background remains clean dark slate - no blinding cyan washout
-                            let bg_color = if is_selected {
-                                Color32::from_rgb(22, 28, 42)
-                            } else if is_hovered {
-                                Color32::from_rgb(26, 34, 52)
-                            } else {
-                                Color32::from_rgb(18, 24, 36)
-                            };
+                        // Background remains clean dark slate - no blinding cyan washout
+                        let bg_color = if is_selected {
+                            Color32::from_rgb(22, 28, 42)
+                        } else if is_hovered {
+                            Color32::from_rgb(26, 34, 52)
+                        } else {
+                            Color32::from_rgb(18, 24, 36)
+                        };
 
-                            let border_stroke = if is_selected {
-                                Stroke::new(1.5_f32, Color32::from_rgb(0, 242, 254))
-                            } else if is_hovered {
-                                Stroke::new(1.0_f32, Color32::from_rgb(70, 90, 120))
-                            } else {
-                                Stroke::new(1.0_f32, Color32::from_rgb(36, 48, 70))
-                            };
+                        let border_stroke = if is_selected {
+                            Stroke::new(1.5_f32, Color32::from_rgb(0, 242, 254))
+                        } else if is_hovered {
+                            Stroke::new(1.0_f32, Color32::from_rgb(70, 90, 120))
+                        } else {
+                            Stroke::new(1.0_f32, Color32::from_rgb(36, 48, 70))
+                        };
 
-                            // Flashing -> indicator towards selected key
-                            let flash_on = if is_selected {
-                                ui.ctx()
-                                    .request_repaint_after(std::time::Duration::from_millis(200));
-                                (ui.ctx().input(|i| i.time) * 2.5).fract() < 0.5
-                            } else {
-                                false
-                            };
+                        // Flashing -> indicator towards selected key
+                        let flash_on = if is_selected {
+                            ui.ctx()
+                                .request_repaint_after(std::time::Duration::from_millis(200));
+                            (ui.ctx().input(|i| i.time) * 2.5).fract() < 0.5
+                        } else {
+                            false
+                        };
 
-                            let (rect, response) = ui
-                                .allocate_exact_size(Vec2::new(card_w, 36.0), egui::Sense::click());
+                        let (rect, response) =
+                            ui.allocate_exact_size(Vec2::new(card_w, 36.0), egui::Sense::click());
 
-                            if response.clicked() {
-                                self.selected_slot = slot_idx;
-                            }
-
-                            if response.hovered() {
-                                self.hovered_button = Some(slot_idx);
-                                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
-                            }
-
-                            let painter = ui.painter();
-                            painter.rect_filled(rect, 4.0, bg_color);
-                            painter.rect_stroke(rect, 4.0, border_stroke);
-
-                            let content_rect = rect.shrink2(Vec2::new(10.0, 0.0));
-                            ui.allocate_ui_at_rect(content_rect, |content_ui| {
-                                content_ui.with_layout(
-                                    egui::Layout::left_to_right(egui::Align::Center),
-                                    |content_ui| {
-                                        // Flashing arrow or transparent placeholder
-                                        let arrow_color = if is_selected && flash_on {
-                                            Color32::from_rgb(0, 242, 254)
-                                        } else {
-                                            Color32::TRANSPARENT
-                                        };
-
-                                        content_ui.label(
-                                            egui::RichText::new("->").strong().color(arrow_color),
-                                        );
-                                        content_ui.add_space(4.0);
-
-                                        // Button Name: high contrast white
-                                        content_ui.label(
-                                            egui::RichText::new(label).strong().color(
-                                                if is_selected {
-                                                    Color32::WHITE
-                                                } else {
-                                                    Color32::from_rgb(215, 225, 240)
-                                                },
-                                            ),
-                                        );
-
-                                        // Right-aligned description: crisp cyan
-                                        content_ui.with_layout(
-                                            egui::Layout::right_to_left(egui::Align::Center),
-                                            |r_ui| {
-                                                r_ui.label(
-                                                    egui::RichText::new(&btn.description)
-                                                        .strong()
-                                                        .color(Color32::from_rgb(0, 242, 254)),
-                                                );
-                                            },
-                                        );
-                                    },
-                                );
-                            });
-
-                            ui.add_space(3.0);
+                        if response.clicked() {
+                            self.selected_slot = slot_idx;
                         }
-                    }
 
-                    ui.add_space(10.0);
-                    let sel_button_num = slot_idx_to_button_num(self.selected_slot);
-                    let change_btn_text = format!("Change Key Bind (Button [{}])", sel_button_num);
-                    let change_resp = ui.add_sized(
-                        [ui.available_width(), 36.0],
-                        egui::Button::new(
-                            egui::RichText::new(change_btn_text)
-                                .strong()
-                                .color(Color32::BLACK),
-                        )
-                        .fill(Color32::from_rgb(0, 242, 254)),
-                    );
+                        if response.hovered() {
+                            self.hovered_button = Some(slot_idx);
+                            ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+                        }
 
-                    if change_resp.clicked() {
-                        self.init_rebind_modal(self.selected_slot, is_gaming);
-                        self.editing_slot = Some((self.selected_slot, is_gaming));
+                        let painter = ui.painter();
+                        painter.rect_filled(rect, 4.0, bg_color);
+                        painter.rect_stroke(rect, 4.0, border_stroke);
+
+                        let content_rect = rect.shrink2(Vec2::new(10.0, 0.0));
+                        ui.allocate_ui_at_rect(content_rect, |content_ui| {
+                            content_ui.with_layout(
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |content_ui| {
+                                    // Flashing arrow or transparent placeholder
+                                    let arrow_color = if is_selected && flash_on {
+                                        Color32::from_rgb(0, 242, 254)
+                                    } else {
+                                        Color32::TRANSPARENT
+                                    };
+
+                                    content_ui.label(
+                                        egui::RichText::new("->").strong().color(arrow_color),
+                                    );
+                                    content_ui.add_space(4.0);
+
+                                    // Button Name: high contrast white
+                                    content_ui.label(egui::RichText::new(label).strong().color(
+                                        if is_selected {
+                                            Color32::WHITE
+                                        } else {
+                                            Color32::from_rgb(215, 225, 240)
+                                        },
+                                    ));
+
+                                    // Right-aligned description: crisp cyan
+                                    content_ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |r_ui| {
+                                            r_ui.label(
+                                                egui::RichText::new(&btn.description)
+                                                    .strong()
+                                                    .color(Color32::from_rgb(0, 242, 254)),
+                                            );
+                                        },
+                                    );
+                                },
+                            );
+                        });
+
+                        ui.add_space(3.0);
                     }
-                },
-            );
+                }
+
+                ui.add_space(10.0);
+                let sel_button_num = slot_idx_to_button_num(self.selected_slot);
+                let change_btn_text = format!("Change Key Bind (Button [{}])", sel_button_num);
+                let change_resp = ui.add_sized(
+                    [ui.available_width(), 36.0],
+                    egui::Button::new(
+                        egui::RichText::new(change_btn_text)
+                            .strong()
+                            .color(Color32::BLACK),
+                    )
+                    .fill(Color32::from_rgb(0, 242, 254)),
+                );
+
+                if change_resp.clicked() {
+                    self.init_rebind_modal(self.selected_slot, is_gaming);
+                    self.editing_slot = Some((self.selected_slot, is_gaming));
+                }
+            });
 
             ui.separator();
 
             // Right Column: Centered Hardware Mouse Picture (Fatter, 330x340px)
-            ui.allocate_ui_with_layout(
-                Vec2::new(ui.available_width(), ui.available_height()),
-                egui::Layout::top_down(egui::Align::Center),
-                |ui| {
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new("E-DRA EM624 HARDWARE SWITCH MATRIX")
-                            .strong()
-                            .color(Color32::from_rgb(140, 160, 190)),
-                    );
-                    ui.add_space(4.0);
+            ui.vertical(|ui| {
+                ui.set_min_width(340.0);
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("E-DRA EM624 HARDWARE SWITCH MATRIX")
+                        .strong()
+                        .color(Color32::from_rgb(140, 160, 190)),
+                );
+                ui.add_space(4.0);
 
-                    self.render_mouse_photo(ui);
+                self.render_mouse_photo(ui);
 
-                    ui.add_space(6.0);
-                    ui.label(
-                        egui::RichText::new(
-                            "SunplusIT SPCP6662 Optical Sensor • Huano 50M Switches",
-                        )
+                ui.add_space(6.0);
+                ui.label(
+                    egui::RichText::new("SunplusIT SPCP6662 Optical Sensor • Huano 50M Switches")
                         .small()
                         .color(Color32::from_rgb(120, 140, 170)),
-                    );
-                },
-            );
+                );
+            });
         });
     }
 
@@ -1772,7 +1788,17 @@ impl Em624App {
     }
 
     fn render_advanced_tab(&mut self, ui: &mut egui::Ui) {
+        let pal = self.palette();
         ui.add_space(4.0);
+        ui.heading("Advanced Settings & Performance (Unfinished)");
+        ui.label(
+            egui::RichText::new(
+                "Configure DPI stages, Fire Key, pointer speeds, and USB polling rate:",
+            )
+            .small()
+            .color(pal.text_secondary),
+        );
+        ui.add_space(8.0);
 
         ui.horizontal(|ui| {
             // Left Column: Fire Key & Pointer Speeds
