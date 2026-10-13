@@ -19,19 +19,6 @@ pub fn trim_working_set() {
 
 pub fn ensure_console_allocated() {}
 
-pub fn get_process_memory_mb() -> (f32, f32) {
-    if let Ok(statm) = std::fs::read_to_string("/proc/self/statm") {
-        let parts: Vec<&str> = statm.split_whitespace().collect();
-        if parts.len() >= 2 {
-            let page_size_kb = 4.0;
-            let rss_pages: f32 = parts[1].parse().unwrap_or(0.0);
-            let rss_mb = (rss_pages * page_size_kb) / 1024.0;
-            return (rss_mb, rss_mb);
-        }
-    }
-    (0.0, 0.0)
-}
-
 pub fn spawn_debug_terminal(log_path: Option<&std::path::Path>) {
     if let Ok(exe) = std::env::current_exe() {
         let terminals = [

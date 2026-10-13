@@ -180,20 +180,6 @@ impl Strings {
         }
     }
 
-    pub fn switch_matrix_title(lang: Language) -> &'static str {
-        match lang {
-            Language::English => "E-DRA EM624 HARDWARE SWITCH MATRIX",
-            Language::Vietnamese => "SƠ ĐỒ PHẦN CỨNG NÚT BẤM E-DRA EM624",
-        }
-    }
-
-    pub fn switch_spec(lang: Language) -> &'static str {
-        match lang {
-            Language::English => "SunplusIT SPCP6662 Optical Sensor • Huano 50M Switches",
-            Language::Vietnamese => "Cảm biến quang học SunplusIT SPCP6662 • Nút bấm Huano 50M",
-        }
-    }
-
     pub fn rebind_title(lang: Language, btn_num: u8, mode_name: &str) -> String {
         match lang {
             Language::English => format!("Remap Button [{}] ({})", btn_num, mode_name),

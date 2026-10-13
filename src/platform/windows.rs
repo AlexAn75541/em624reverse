@@ -60,27 +60,6 @@ pub fn ensure_console_allocated() {
     }
 }
 
-pub fn get_process_memory_mb() -> (f32, f32) {
-    unsafe {
-        let handle = windows_sys::Win32::System::Threading::GetCurrentProcess();
-        let mut pmc: windows_sys::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS =
-            std::mem::zeroed();
-        let cb = std::mem::size_of::<
-            windows_sys::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS,
-        >() as u32;
-        if windows_sys::Win32::System::ProcessStatus::K32GetProcessMemoryInfo(handle, &mut pmc, cb)
-            != 0
-        {
-            (
-                pmc.WorkingSetSize as f32 / (1024.0 * 1024.0),
-                pmc.PagefileUsage as f32 / (1024.0 * 1024.0),
-            )
-        } else {
-            (0.0, 0.0)
-        }
-    }
-}
-
 pub fn spawn_debug_terminal(log_path: Option<&std::path::Path>) {
     if let Ok(exe) = std::env::current_exe() {
         let mut cmd = std::process::Command::new(exe);

@@ -15,12 +15,12 @@ pub const OFFICIAL_DPI_STEPS: [u32; 15] = [
 
 /// Standard 12-key button mapping (4 bytes per key, 48 bytes total) from factory firmware.
 /// Guaranteed functional mouse actions:
-/// Key 1: Left Click, Key 2: Forward (Side 1), Key 3: CPI Loop,
+/// Key 1: Left Click, Key 2: Forward (Side 1), Key 3: Fire Key,
 /// Key 4: Right Click, Key 5: Backward (Side 2), Key 7: Middle Click
 pub const STANDARD_BUTTON_TABLE: [u8; 48] = [
     0x01, 0x01, 0x00, 0x00, // Key 1: Left Click
     0x01, 0x08, 0x00, 0x02, // Key 2: Forward (Side Button 1)
-    0x06, 0x92, 0x00, 0x1e, // Key 3: CPI Loop
+    0x06, 0x92, 0x00, 0x1e, // Key 3: Fire Key / Burst
     0x01, 0x02, 0x00, 0x00, // Key 4: Right Click
     0x01, 0x10, 0x00, 0x00, // Key 5: Backward (Side Button 2)
     0x09, 0x01, 0x00, 0x00, // Key 6: Fn / Gaming
@@ -427,13 +427,13 @@ impl MouseProfile {
                 0x94 => "App: My Computer".to_string(),
                 other => format!("Consumer 0x{:02x}", other),
             },
-            0x06 => "CPI Loop".to_string(),
+            0x06 => "Fire Key".to_string(),
             0x07 => "ACPI / Power".to_string(),
-            0x08 => "CPI Switch".to_string(),
+            0x08 => "DPI Loop".to_string(),
             0x09 => match p1 {
-                0x00 => "Office Mode".to_string(),
+                0x00 => "Office Mode / DPI -".to_string(),
                 0x01 => "Gaming Mode".to_string(),
-                0x02 => "CPI +".to_string(),
+                0x02 => "DPI +".to_string(),
                 other => format!("Fn 0x{:02x}", other),
             },
             0x00 => "None".to_string(),
@@ -487,7 +487,7 @@ impl MouseProfile {
         }
     }
 
-    /// Apply 100% standard mouse button actions (Left, Right, Middle, Forward, Backward, CPI Loop)
+    /// Apply 100% standard mouse button actions (Left, Right, Middle, Forward, Backward, DPI Loop)
     /// to both Office Mode and Gaming Mode tables, while recalculating checksums.
     pub fn apply_standard_buttons(&mut self) {
         if self.raw.len() != PROFILE_SIZE {

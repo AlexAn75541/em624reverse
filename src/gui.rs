@@ -57,6 +57,8 @@ pub struct AppConfig {
     pub custom_data_dir: Option<String>,
     #[serde(default)]
     pub allow_stage_6: bool,
+    #[serde(default)]
+    pub show_mode_switcher: bool,
 }
 
 impl Default for AppConfig {
@@ -69,6 +71,7 @@ impl Default for AppConfig {
             language: Language::English,
             custom_data_dir: None,
             allow_stage_6: false,
+            show_mode_switcher: false,
         }
     }
 }
@@ -1158,33 +1161,35 @@ impl eframe::App for Em624App {
                     self.flash_to_mouse();
                 }
 
-                ui.separator();
+                if self.config.show_mode_switcher {
+                    ui.separator();
 
-                let is_gaming = self.profile.raw[0x00a4] == 0x01;
-                let mode_btn_text = if is_gaming {
-                    Strings::btn_mode_gaming(self.config.language)
-                } else {
-                    Strings::btn_mode_office(self.config.language)
-                };
-                if ui
-                    .add(
-                        egui::Button::new(
-                            egui::RichText::new(mode_btn_text)
-                                .strong()
-                                .color(if is_gaming {
-                                    Color32::from_rgb(0, 242, 254)
-                                } else {
-                                    Color32::from_rgb(46, 213, 115)
-                                }),
+                    let is_gaming = self.profile.raw[0x00a4] == 0x01;
+                    let mode_btn_text = if is_gaming {
+                        Strings::btn_mode_gaming(self.config.language)
+                    } else {
+                        Strings::btn_mode_office(self.config.language)
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(format!("{} [EXP]", mode_btn_text))
+                                    .strong()
+                                    .color(if is_gaming {
+                                        Color32::from_rgb(0, 242, 254)
+                                    } else {
+                                        Color32::from_rgb(46, 213, 115)
+                                    }),
+                            )
+                            .stroke(Stroke::new(1.0_f32, pal.card_border)),
                         )
-                        .stroke(Stroke::new(1.0_f32, pal.card_border)),
-                    )
-                    .on_hover_text(
-                        "Click to toggle between Gaming Mode (0x01) and Office Mode (0x00) and forward the reversed configuration report to mouse hardware immediately.",
-                    )
-                    .clicked()
-                {
-                    self.switch_mode_and_forward(!is_gaming);
+                        .on_hover_text(
+                            "Experimental Mode Switcher: Click to toggle between Gaming Mode (0x01) and Office Mode (0x00) and forward the reversed configuration report to mouse hardware immediately.",
+                        )
+                        .clicked()
+                    {
+                        self.switch_mode_and_forward(!is_gaming);
+                    }
                 }
 
                 ui.separator();
@@ -1860,22 +1865,7 @@ impl Em624App {
             // Right Column: Centered Hardware Mouse Picture with Smart Scaling
             ui.vertical(|ui| {
                 ui.set_width(col2_w);
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(Strings::switch_matrix_title(lang))
-                        .strong()
-                        .color(Color32::from_rgb(140, 160, 190)),
-                );
-                ui.add_space(4.0);
-
                 self.render_mouse_photo(ui, mouse_scale);
-
-                ui.add_space(6.0);
-                ui.label(
-                    egui::RichText::new(Strings::switch_spec(lang))
-                        .small()
-                        .color(Color32::from_rgb(120, 140, 170)),
-                );
             });
 
             if pad_x > 0.0 {
@@ -2624,6 +2614,24 @@ impl Em624App {
                 self.config.save();
                 self.sync_settings_to_profile();
             }
+
+            ui.add_space(4.0);
+            let mut show_mode = self.config.show_mode_switcher;
+            let mode_toggle_label = if lang == Language::Vietnamese {
+                "Hiển thị nút chuyển chế độ ở thanh dưới (Gaming / Office) [Chưa hoàn thiện / Thử nghiệm]"
+            } else {
+                "Show Mode Switcher in Bottom Bar (Gaming / Office) [Unfinished / Experimental]"
+            };
+            if ui
+                .checkbox(&mut show_mode, mode_toggle_label)
+                .on_hover_text(
+                    "Enables live on-the-fly mode toggle (0x01 Gaming / 0x00 Office) in the bottom toolbar. Note: live mode switching is an unfinished feature and may require a profile reload.",
+                )
+                .changed()
+            {
+                self.config.show_mode_switcher = show_mode;
+                self.config.save();
+            }
         });
 
         ui.add_space(12.0);
@@ -2672,12 +2680,6 @@ impl Em624App {
                     "https://github.com/AlexAn75541/em624reverse",
                 );
             });
-            ui.add_space(4.0);
-            let (ws_mb, priv_mb) = get_process_memory_mb();
-            ui.label(format!(
-                "• Live Memory Usage: {:.1} MB Working Set (Private: {:.1} MB) — budget <= 10MB",
-                ws_mb, priv_mb
-            ));
         });
     }
 }
@@ -2754,10 +2756,6 @@ fn slot_idx_to_button_num(slot_idx: usize) -> u8 {
 
 pub fn trim_working_set() {
     crate::platform::trim_working_set();
-}
-
-pub fn get_process_memory_mb() -> (f32, f32) {
-    crate::platform::get_process_memory_mb()
 }
 
 pub fn chrono_or_simple_time() -> String {

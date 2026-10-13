@@ -9,10 +9,6 @@ use crate::device::Em624Device;
 
 pub fn trim_working_set() {}
 
-pub fn get_process_memory_mb() -> (f32, f32) {
-    (0.0, 0.0)
-}
-
 pub fn spawn_debug_terminal(log_path: Option<&std::path::Path>) {
     if let Ok(exe) = std::env::current_exe() {
         let mut cmd = std::process::Command::new(exe);

@@ -41,7 +41,7 @@ enum Commands {
         path: PathBuf,
         /// Button mapping mode:
         /// 'keep' (default): Preserves profile's own button mappings (e.g. Win+D, Shift+Win+S, hotkeys) with safe stage 6 mask
-        /// 'standard': Enforces standard browser actions (Left, Right, Middle, Forward, Backward, CPI Loop)
+        /// 'standard': Enforces standard browser actions (Left, Right, Middle, Forward, Backward, DPI Loop)
         /// 'daily': Clone DailyUse baseline
         #[arg(long, default_value = "keep")]
         buttons: String,
@@ -240,7 +240,7 @@ fn main() -> Result<()> {
 
             match buttons.to_lowercase().as_str() {
                 "standard" => {
-                    println!("  -> [BUTTONS] Enforcing standard mouse buttons (Left, Right, Middle, Forward, Backward, CPI Loop)...");
+                    println!("  -> [BUTTONS] Enforcing standard mouse buttons (Left, Right, Middle, Forward, Backward, DPI Loop)...");
                     profile.apply_standard_buttons();
                 }
                 "keep" => {
@@ -402,7 +402,7 @@ fn main() -> Result<()> {
 
             match buttons.to_lowercase().as_str() {
                 "standard" => {
-                    println!("  -> Enforcing standard mouse buttons (Left, Right, Middle, Forward, Back, CPI Loop)...");
+                    println!("  -> Enforcing standard mouse buttons (Left, Right, Middle, Forward, Back, DPI Loop)...");
                     profile.apply_standard_buttons();
                 }
                 "keep" => {
