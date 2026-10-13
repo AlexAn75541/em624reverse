@@ -19,11 +19,39 @@ pub enum Tab {
     Settings,
 }
 
+#[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+pub enum ThemeMode {
+    #[default]
+    PitchBlackOled,
+    Windows11Dark,
+    LightWhite,
+}
+
+#[allow(dead_code)]
+pub struct ThemePalette {
+    pub bg_base: Color32,
+    pub panel_bg: Color32,
+    pub card_bg: Color32,
+    pub card_border: Color32,
+    pub text_primary: Color32,
+    pub text_secondary: Color32,
+    pub accent: Color32,
+    pub accent_hover: Color32,
+    pub mouse_bg: Color32,
+    pub badge_bg: Color32,
+    pub badge_text: Color32,
+    pub badge_border: Color32,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AppConfig {
     pub ui_scale: f32,
     pub debug_mode: bool,
     pub last_profile: Option<String>,
+    #[serde(default)]
+    pub theme: ThemeMode,
+    #[serde(default)]
+    pub custom_data_dir: Option<String>,
 }
 
 impl Default for AppConfig {
@@ -32,26 +60,91 @@ impl Default for AppConfig {
             ui_scale: 1.25,
             debug_mode: false,
             last_profile: None,
+            theme: ThemeMode::PitchBlackOled,
+            custom_data_dir: None,
         }
     }
 }
 
 impl AppConfig {
+    pub fn get_master_data_dir(&self) -> PathBuf {
+        if let Some(ref custom) = self.custom_data_dir {
+            let trimmed = custom.trim();
+            if !trimmed.is_empty() {
+                let p = PathBuf::from(trimmed);
+                if p.file_name().map(|n| n == "em624").unwrap_or(false) {
+                    return p;
+                } else {
+                    return p.join("em624");
+                }
+            }
+        }
+        PathBuf::from("em624")
+    }
+
+    pub fn config_dir(&self) -> PathBuf {
+        self.get_master_data_dir().join(".config")
+    }
+
+    pub fn cache_dir(&self) -> PathBuf {
+        self.get_master_data_dir().join(".cache")
+    }
+
+    pub fn logs_dir(&self) -> PathBuf {
+        self.get_master_data_dir().join(".logs")
+    }
+
+    pub fn pointer_file() -> PathBuf {
+        PathBuf::from("em624/.config/settings_path.txt")
+    }
+
     pub fn load() -> Self {
-        let path = Path::new(".config/settings.json");
-        if let Ok(data) = fs::read_to_string(path) {
-            if let Ok(cfg) = serde_json::from_str(&data) {
+        let ptr_file = Self::pointer_file();
+        if let Ok(ptr_content) = fs::read_to_string(&ptr_file) {
+            let target_cfg = PathBuf::from(ptr_content.trim());
+            if target_cfg.exists() {
+                if let Ok(data) = fs::read_to_string(&target_cfg) {
+                    if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
+                        return cfg;
+                    }
+                }
+            }
+        }
+
+        let default_path = Path::new("em624/.config/settings.json");
+        if let Ok(data) = fs::read_to_string(default_path) {
+            if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
                 return cfg;
             }
         }
-        Self::default()
+
+        let legacy_path = Path::new(".config/settings.json");
+        if let Ok(data) = fs::read_to_string(legacy_path) {
+            if let Ok(cfg) = serde_json::from_str::<AppConfig>(&data) {
+                cfg.save();
+                return cfg;
+            }
+        }
+
+        let cfg = Self::default();
+        cfg.save();
+        cfg
     }
 
     pub fn save(&self) {
-        let _ = fs::create_dir_all(".config");
-        let path = Path::new(".config/settings.json");
+        let dir = self.config_dir();
+        let _ = fs::create_dir_all(&dir);
+        let settings_path = dir.join("settings.json");
         if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(path, json);
+            let _ = fs::write(&settings_path, json);
+        }
+
+        if let Some(ref _custom) = self.custom_data_dir {
+            let _ = fs::create_dir_all("em624/.config");
+            let _ = fs::write(
+                Self::pointer_file(),
+                settings_path.to_string_lossy().as_bytes(),
+            );
         }
     }
 }
@@ -95,6 +188,26 @@ pub struct Em624App {
     #[allow(dead_code)]
     macro_recording: bool,
     trimmed: bool,
+    device_rx: std::sync::mpsc::Receiver<crate::platform::DeviceStatus>,
+    custom_dir_input: String,
+    custom_dir_error: Option<String>,
+}
+
+pub fn format_time_date_log() -> String {
+    let now = chrono::Local::now();
+    now.format("%H-%M-%S_%Y-%m-%d.log").to_string()
+}
+
+impl Drop for Em624App {
+    fn drop(&mut self) {
+        let logs_dir = self.config.logs_dir();
+        let active_log = logs_dir.join("debug.log");
+        if active_log.exists() {
+            self.log_debug("[SESSION_END] Closing session and archiving debug log.");
+            let archive_name = format_time_date_log();
+            let _ = fs::rename(&active_log, logs_dir.join(archive_name));
+        }
+    }
 }
 
 impl Default for Em624App {
@@ -103,20 +216,14 @@ impl Default for Em624App {
         let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
         let profile = MouseProfile::from_bytes(baseline).unwrap();
 
-        let _ = fs::create_dir_all(".cache");
-        if let Ok(mut f) = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(".cache/debug.log")
-        {
-            use std::io::Write;
-            let ts = chrono_or_simple_time();
-            let _ = writeln!(
-                f,
-                "[{}] [STARTUP] E-DRA EM624 Configurator GUI session started.",
-                ts
-            );
-            let _ = f.flush();
+        let logs_dir = config.logs_dir();
+        let _ = fs::create_dir_all(&logs_dir);
+        let active_log = logs_dir.join("debug.log");
+
+        // Rotate leftover debug.log from an unclosed previous session
+        if active_log.exists() {
+            let archive_name = format_time_date_log();
+            let _ = fs::rename(&active_log, logs_dir.join(archive_name));
         }
 
         let mut macro_bank = MacroBank::default();
@@ -150,7 +257,10 @@ impl Default for Em624App {
         macro_bank.macros.push(m2);
         macro_bank.macros.push(m3);
 
-        Self {
+        let (_tx, device_rx) = std::sync::mpsc::channel();
+        let custom_dir_input = config.custom_data_dir.clone().unwrap_or_default();
+
+        let app = Self {
             config,
             profile,
             active_tab: Tab::GameMode,
@@ -184,13 +294,20 @@ impl Default for Em624App {
             selected_macro: Some(0),
             macro_recording: false,
             trimmed: false,
-        }
+            device_rx,
+            custom_dir_input,
+            custom_dir_error: None,
+        };
+
+        app.log_debug("[STARTUP] E-DRA EM624 Configurator GUI session started.");
+        app
     }
 }
 
 impl Em624App {
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self::default();
+        app.device_rx = crate::platform::start_device_monitor();
         if app.config.debug_mode {
             app.spawn_native_terminal();
         }
@@ -199,54 +316,129 @@ impl Em624App {
         app
     }
 
-    fn spawn_native_terminal(&self) {
-        if let Ok(exe) = std::env::current_exe() {
-            #[cfg(target_os = "windows")]
-            {
-                use std::os::windows::process::CommandExt;
-                let _ = std::process::Command::new(exe)
-                    .arg("log-viewer")
-                    .creation_flags(0x00000010) // CREATE_NEW_CONSOLE
-                    .spawn();
-            }
-
-            #[cfg(not(target_os = "windows"))]
-            {
-                let terminals = [
-                    "x-terminal-emulator",
-                    "gnome-terminal",
-                    "konsole",
-                    "xfce4-terminal",
-                    "alacritty",
-                    "xterm",
-                ];
-                let mut spawned = false;
-                for term in terminals {
-                    if let Ok(_child) = std::process::Command::new(term)
-                        .arg("-e")
-                        .arg(format!("{} log-viewer", exe.display()))
-                        .spawn()
-                    {
-                        spawned = true;
-                        break;
-                    }
-                }
-                if !spawned {
-                    let _ = std::process::Command::new(exe).arg("log-viewer").spawn();
-                }
-            }
+    pub fn palette(&self) -> ThemePalette {
+        match self.config.theme {
+            ThemeMode::PitchBlackOled => ThemePalette {
+                bg_base: Color32::from_rgb(0, 0, 0),
+                panel_bg: Color32::from_rgb(8, 8, 8),
+                card_bg: Color32::from_rgb(14, 18, 25),
+                card_border: Color32::from_rgb(34, 44, 62),
+                text_primary: Color32::from_rgb(245, 245, 245),
+                text_secondary: Color32::from_rgb(150, 165, 185),
+                accent: Color32::from_rgb(0, 242, 254),
+                accent_hover: Color32::from_rgb(79, 172, 254),
+                mouse_bg: Color32::from_rgb(10, 12, 18),
+                badge_bg: Color32::from_rgba_premultiplied(10, 15, 25, 230),
+                badge_text: Color32::from_rgb(0, 242, 254),
+                badge_border: Color32::from_rgb(0, 242, 254),
+            },
+            ThemeMode::Windows11Dark => ThemePalette {
+                bg_base: Color32::from_rgb(32, 32, 32),
+                panel_bg: Color32::from_rgb(38, 38, 38),
+                card_bg: Color32::from_rgb(46, 46, 46),
+                card_border: Color32::from_rgb(64, 64, 64),
+                text_primary: Color32::from_rgb(255, 255, 255),
+                text_secondary: Color32::from_rgb(180, 180, 180),
+                accent: Color32::from_rgb(0, 242, 254),
+                accent_hover: Color32::from_rgb(79, 172, 254),
+                mouse_bg: Color32::from_rgb(28, 28, 28),
+                badge_bg: Color32::from_rgba_premultiplied(30, 30, 30, 230),
+                badge_text: Color32::from_rgb(0, 242, 254),
+                badge_border: Color32::from_rgb(0, 242, 254),
+            },
+            ThemeMode::LightWhite => ThemePalette {
+                bg_base: Color32::from_rgb(243, 244, 246),
+                panel_bg: Color32::from_rgb(249, 250, 251),
+                card_bg: Color32::from_rgb(255, 255, 255),
+                card_border: Color32::from_rgb(209, 213, 219),
+                text_primary: Color32::from_rgb(17, 24, 39),
+                text_secondary: Color32::from_rgb(75, 85, 99),
+                accent: Color32::from_rgb(2, 132, 199),
+                accent_hover: Color32::from_rgb(3, 105, 161),
+                mouse_bg: Color32::from_rgb(240, 242, 245),
+                badge_bg: Color32::from_rgb(255, 255, 255),
+                badge_text: Color32::from_rgb(2, 132, 199),
+                badge_border: Color32::from_rgb(2, 132, 199),
+            },
         }
+    }
+
+    fn change_custom_data_dir(&mut self, new_raw_path: &str) {
+        let trimmed = new_raw_path.trim();
+        if trimmed.is_empty() {
+            self.config.custom_data_dir = None;
+            self.config.save();
+            self.custom_dir_input.clear();
+            self.custom_dir_error = None;
+            self.status_message = "Reset master data directory to default: ./em624".to_string();
+            self.log_debug("[CONFIG] Master data directory reset to default: ./em624");
+            return;
+        }
+
+        let target_path = PathBuf::from(trimmed);
+        if let Err(e) = fs::create_dir_all(&target_path) {
+            let err_msg = format!("Cannot create directory '{}': {}", target_path.display(), e);
+            self.custom_dir_error = Some(err_msg.clone());
+            self.log_debug(&format!("[WARNING] Unsuitable directory: {}", err_msg));
+            return;
+        }
+
+        let test_file = target_path.join(".perm_test");
+        if let Err(e) = fs::write(&test_file, b"test") {
+            let err_msg = format!(
+                "Directory not writable '{}': Permission denied ({})",
+                target_path.display(),
+                e
+            );
+            self.custom_dir_error = Some(err_msg.clone());
+            self.log_debug(&format!("[WARNING] Unsuitable directory: {}", err_msg));
+            return;
+        }
+        let _ = fs::remove_file(&test_file);
+
+        let master_dir = if target_path
+            .file_name()
+            .map(|n| n == "em624")
+            .unwrap_or(false)
+        {
+            target_path.clone()
+        } else {
+            target_path.join("em624")
+        };
+
+        if let Err(e) = fs::create_dir_all(master_dir.join(".config")) {
+            let err_msg = format!("Failed to create .config in master directory: {}", e);
+            self.custom_dir_error = Some(err_msg.clone());
+            self.log_debug(&format!("[WARNING] {}", err_msg));
+            return;
+        }
+        let _ = fs::create_dir_all(master_dir.join(".cache"));
+        let _ = fs::create_dir_all(master_dir.join(".logs"));
+
+        self.config.custom_data_dir = Some(trimmed.to_string());
+        self.config.save();
+        self.custom_dir_error = None;
+        self.status_message = format!("Master data directory updated: {}", master_dir.display());
+        self.log_debug(&format!(
+            "[CONFIG] Successfully relocated master data directory to: {}",
+            master_dir.display()
+        ));
+    }
+
+    fn spawn_native_terminal(&self) {
+        crate::platform::spawn_debug_terminal();
     }
 
     fn log_debug(&self, msg: &str) {
         let ts = chrono_or_simple_time();
         let formatted = format!("[{}] {}", ts, msg);
         println!("{}", formatted);
-        let _ = fs::create_dir_all(".cache");
+        let logs_dir = self.config.logs_dir();
+        let _ = fs::create_dir_all(&logs_dir);
         if let Ok(mut f) = fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(".cache/debug.log")
+            .open(logs_dir.join("debug.log"))
         {
             use std::io::Write;
             let _ = writeln!(f, "{}", formatted);
@@ -395,7 +587,8 @@ impl Em624App {
     }
 
     fn load_profile_auto(&mut self, path: PathBuf) {
-        let _ = fs::create_dir_all(".cache");
+        let cache_dir = self.config.cache_dir();
+        let _ = fs::create_dir_all(&cache_dir);
         let ext = path
             .extension()
             .and_then(|s| s.to_str())
@@ -414,12 +607,12 @@ impl Em624App {
                     .file_stem()
                     .and_then(|s| s.to_str())
                     .unwrap_or("profile");
-                let cached_path = PathBuf::from(format!(".cache/{}.em624", stem));
+                let cached_path = cache_dir.join(format!("{}.em624", stem));
                 if let Ok(()) = prof.save_file(&cached_path) {
                     self.profile = prof;
                     self.file_path = Some(cached_path.clone());
                     self.status_message =
-                        format!("Converted and loaded into .cache/{}.em624", stem);
+                        format!("Converted and loaded into {}", cached_path.display());
                     self.log_debug(&format!(
                         "[CONVERT] Saved cached safe profile to: {}",
                         cached_path.display()
@@ -445,13 +638,14 @@ impl Em624App {
     }
 
     fn save_to_cached_profile(&mut self) {
-        let _ = fs::create_dir_all(".cache");
+        let cache_dir = self.config.cache_dir();
+        let _ = fs::create_dir_all(&cache_dir);
         let stem = self
             .file_path
             .as_ref()
             .and_then(|p| p.file_stem().and_then(|s| s.to_str()))
             .unwrap_or("DailyUse");
-        let cached_path = PathBuf::from(format!(".cache/{}.em624", stem));
+        let cached_path = cache_dir.join(format!("{}.em624", stem));
         if let Ok(()) = self.profile.save_file(&cached_path) {
             self.file_path = Some(cached_path.clone());
             self.config.last_profile = Some(cached_path.to_string_lossy().to_string());
@@ -560,8 +754,48 @@ impl Em624App {
 
 impl eframe::App for Em624App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        while let Ok(status) = self.device_rx.try_recv() {
+            match status {
+                crate::platform::DeviceStatus::Connected { info, vid, pid } => {
+                    self.device_connected = true;
+                    self.connected_info = info;
+                    self.status_message = format!(
+                        "E-DRA EM624 connected (VID 0x{:04x}, PID 0x{:04x}).",
+                        vid, pid
+                    );
+                }
+                crate::platform::DeviceStatus::Disconnected => {
+                    self.device_connected = false;
+                    self.connected_info = "Not detected".to_string();
+                    self.status_message = "Mouse disconnected.".to_string();
+                }
+            }
+        }
+
         ctx.set_zoom_factor(self.config.ui_scale);
-        ctx.set_visuals(egui::Visuals::dark());
+        let pal = self.palette();
+
+        let visuals = match self.config.theme {
+            ThemeMode::PitchBlackOled => {
+                let mut v = egui::Visuals::dark();
+                v.panel_fill = Color32::from_rgb(0, 0, 0);
+                v.window_fill = Color32::from_rgb(6, 8, 12);
+                v
+            }
+            ThemeMode::Windows11Dark => {
+                let mut v = egui::Visuals::dark();
+                v.panel_fill = Color32::from_rgb(32, 32, 32);
+                v.window_fill = Color32::from_rgb(40, 40, 40);
+                v
+            }
+            ThemeMode::LightWhite => {
+                let mut v = egui::Visuals::light();
+                v.panel_fill = Color32::from_rgb(243, 244, 246);
+                v.window_fill = Color32::from_rgb(255, 255, 255);
+                v
+            }
+        };
+        ctx.set_visuals(visuals);
 
         self.ensure_texture(ctx);
 
@@ -577,17 +811,31 @@ impl eframe::App for Em624App {
                 ui.heading(
                     egui::RichText::new("E-DRA EM624")
                         .strong()
-                        .color(Color32::from_rgb(0, 242, 254)),
+                        .color(pal.accent),
                 );
                 ui.label(
                     egui::RichText::new("GAMING MOUSE CONFIGURATOR")
                         .small()
-                        .color(Color32::from_rgb(140, 160, 190)),
+                        .color(pal.text_secondary),
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Check Connection").clicked() {
                         self.check_connection();
+                    }
+
+                    let (theme_icon, next_theme) = match self.config.theme {
+                        ThemeMode::PitchBlackOled => ("🌑 OLED", ThemeMode::Windows11Dark),
+                        ThemeMode::Windows11Dark => ("🪟 Win11 Dark", ThemeMode::LightWhite),
+                        ThemeMode::LightWhite => ("☀️ Light", ThemeMode::PitchBlackOled),
+                    };
+                    if ui
+                        .button(theme_icon)
+                        .on_hover_text("Click to toggle theme (OLED / Windows 11 Dark / White)")
+                        .clicked()
+                    {
+                        self.config.theme = next_theme;
+                        self.config.save();
                     }
 
                     if self.device_connected {
@@ -625,13 +873,13 @@ impl eframe::App for Em624App {
             });
             ui.add_space(6.0);
 
-            // Tab Navigation
+            // Tab Navigation: Advanced setting is placed immediately to the left of App Settings
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.active_tab, Tab::GameMode, "Game Mode");
                 ui.selectable_value(&mut self.active_tab, Tab::OfficeMode, "Office Mode");
-                ui.selectable_value(&mut self.active_tab, Tab::Advanced, "Advanced");
                 ui.selectable_value(&mut self.active_tab, Tab::LedLighting, "LED Lighting");
                 ui.selectable_value(&mut self.active_tab, Tab::MacroManager, "Macro Manager");
+                ui.selectable_value(&mut self.active_tab, Tab::Advanced, "Advanced");
                 ui.selectable_value(&mut self.active_tab, Tab::Settings, "App Settings");
             });
             ui.add_space(6.0);
@@ -646,10 +894,15 @@ impl eframe::App for Em624App {
                 }
 
                 if ui
-                    .button(
-                        egui::RichText::new("Flash to Mouse")
-                            .strong()
-                            .color(Color32::from_rgb(0, 242, 254)),
+                    .add(
+                        egui::Button::new(egui::RichText::new("Flash to Mouse").strong().color(
+                            if self.config.theme == ThemeMode::LightWhite {
+                                Color32::WHITE
+                            } else {
+                                Color32::BLACK
+                            },
+                        ))
+                        .fill(pal.accent),
                     )
                     .clicked()
                 {
@@ -687,7 +940,7 @@ impl eframe::App for Em624App {
                         egui::RichText::new(&self.status_message)
                             .small()
                             .italics()
-                            .color(Color32::from_rgb(170, 190, 220)),
+                            .color(pal.text_secondary),
                     );
                 });
             });
@@ -1800,17 +2053,111 @@ impl Em624App {
     }
 
     fn render_settings_tab(&mut self, ui: &mut egui::Ui) {
+        let pal = self.palette();
         ui.add_space(6.0);
-        ui.heading("Application Settings & Display Scaling");
+        ui.heading("Application Settings & Configuration");
         ui.label(
             egui::RichText::new(
-                "Configure interface scaling, hardware diagnostics, and debug preferences.",
+                "Configure display theme, interface scaling, storage paths, and hardware diagnostics.",
             )
             .small()
-            .color(Color32::from_rgb(140, 160, 190)),
+            .color(pal.text_secondary),
         );
         ui.add_space(14.0);
 
+        ui.group(|ui| {
+            ui.heading("Theme & Appearance");
+            ui.label(
+                egui::RichText::new(
+                    "Toggle display theme between pitch black OLED, Windows 11 Dark, and high-contrast White:",
+                )
+                .color(pal.text_secondary),
+            );
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(
+                        self.config.theme == ThemeMode::PitchBlackOled,
+                        "🌑 Pitch Black (OLED)",
+                    )
+                    .clicked()
+                {
+                    self.config.theme = ThemeMode::PitchBlackOled;
+                    self.config.save();
+                }
+                if ui
+                    .selectable_label(
+                        self.config.theme == ThemeMode::Windows11Dark,
+                        "🪟 Windows 11 Dark",
+                    )
+                    .clicked()
+                {
+                    self.config.theme = ThemeMode::Windows11Dark;
+                    self.config.save();
+                }
+                if ui
+                    .selectable_label(
+                        self.config.theme == ThemeMode::LightWhite,
+                        "☀️ High-Contrast White",
+                    )
+                    .clicked()
+                {
+                    self.config.theme = ThemeMode::LightWhite;
+                    self.config.save();
+                }
+            });
+        });
+
+        ui.add_space(12.0);
+        ui.group(|ui| {
+            ui.heading("Master Data Storage Directory");
+            ui.label(
+                egui::RichText::new(
+                    "All dot folders (.config, .cache, .logs) are stored under master folder 'em624':",
+                )
+                .color(pal.text_secondary),
+            );
+            ui.add_space(6.0);
+
+            let current_master = self.config.get_master_data_dir();
+            ui.label(
+                egui::RichText::new(format!("Active Master Folder: {}", current_master.display()))
+                    .strong()
+                    .color(pal.accent),
+            );
+            ui.add_space(6.0);
+
+            ui.horizontal(|ui| {
+                ui.label("Custom Root Path:");
+                ui.add(egui::TextEdit::singleline(&mut self.custom_dir_input).desired_width(320.0));
+                if ui.button("Browse...").clicked() {
+                    if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                        self.custom_dir_input = folder.to_string_lossy().to_string();
+                        let clone = self.custom_dir_input.clone();
+                        self.change_custom_data_dir(&clone);
+                    }
+                }
+                if ui.button("Apply").clicked() {
+                    let clone = self.custom_dir_input.clone();
+                    self.change_custom_data_dir(&clone);
+                }
+                if ui.button("Reset Default").clicked() {
+                    self.change_custom_data_dir("");
+                }
+            });
+
+            if let Some(ref err) = self.custom_dir_error {
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(format!("⚠️ {}", err))
+                        .color(Color32::from_rgb(255, 71, 87))
+                        .strong(),
+                );
+            }
+        });
+
+        ui.add_space(12.0);
         ui.group(|ui| {
             ui.heading("Display Scale Factor (Static Presets)");
             ui.label("Select a comfortable zoom level for your display resolution:");
@@ -1861,27 +2208,25 @@ impl Em624App {
         ui.add_space(12.0);
         ui.group(|ui| {
             ui.heading("Developer & Debug Mode");
-            ui.label("Opens terminal output window and enables raw USB packet logging:");
-            ui.add_space(6.0);
+            ui.label(
+                "Launch dedicated native OS terminal to view live hardware logs and USB HID packets:",
+            );
+            ui.add_space(8.0);
 
-            let mut dbg = self.config.debug_mode;
             if ui
-                .checkbox(
-                    &mut dbg,
-                    "Enable Live Debug Console Window (OS Native Terminal)",
+                .add_sized(
+                    [280.0, 32.0],
+                    egui::Button::new(
+                        egui::RichText::new("🚀 Launch Live Debug Terminal")
+                            .strong()
+                            .color(if self.config.theme == ThemeMode::LightWhite {
+                                Color32::WHITE
+                            } else {
+                                Color32::BLACK
+                            }),
+                    )
+                    .fill(pal.accent),
                 )
-                .changed()
-            {
-                self.config.debug_mode = dbg;
-                self.config.save();
-                if dbg {
-                    self.spawn_native_terminal();
-                }
-            }
-
-            ui.add_space(4.0);
-            if ui
-                .button("Launch Native CMD / Terminal Window Now")
                 .clicked()
             {
                 self.spawn_native_terminal();
@@ -1915,7 +2260,9 @@ impl Em624App {
             ui.label("• Optical Sensor: SunplusIT SPCP6662 (6662IC) • 15 discrete DPI steps (200..12000 DPI)");
             ui.label("• MCU Controller: SunplusIT SPCP6651B");
             ui.label("• Switches: Huano 50M rated");
-            ui.label("• Communication: 100% offline, native Rust, zero network or HTML dependencies");
+            let (ws_mb, priv_mb) = get_process_memory_mb();
+            ui.label(format!("• Memory Footprint: {:.1} MB Working Set (RAM) / {:.1} MB Private Commit", ws_mb, priv_mb));
+            ui.label("• Communication: 100% offline, native Rust, zero network or external runtime dependencies");
         });
     }
 }
@@ -1990,31 +2337,13 @@ fn slot_idx_to_button_num(slot_idx: usize) -> u8 {
     }
 }
 
-#[cfg(target_os = "windows")]
 pub fn trim_working_set() {
-    unsafe {
-        let handle = windows_sys::Win32::System::Threading::GetCurrentProcess();
-        let _ = windows_sys::Win32::System::ProcessStatus::K32EmptyWorkingSet(handle);
-        let _ = windows_sys::Win32::System::Threading::SetProcessWorkingSetSize(
-            handle,
-            usize::MAX,
-            usize::MAX,
-        );
-    }
+    crate::platform::trim_working_set();
 }
 
-#[cfg(target_os = "linux")]
-pub fn trim_working_set() {
-    extern "C" {
-        fn malloc_trim(pad: usize) -> i32;
-    }
-    unsafe {
-        let _ = malloc_trim(0);
-    }
+pub fn get_process_memory_mb() -> (f32, f32) {
+    crate::platform::get_process_memory_mb()
 }
-
-#[cfg(not(any(target_os = "windows", target_os = "linux")))]
-pub fn trim_working_set() {}
 
 pub fn chrono_or_simple_time() -> String {
     use std::time::SystemTime;

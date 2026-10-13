@@ -194,7 +194,6 @@ cargo run -- apply-profile exampleProfiles/DailyUse.em624
 - [x] Built Windows Raw Input hardware packet sniffer (`listen` subcommand).
 - [x] Reverse-engineered EEPROM macro bytecode format and instruction set (`src/macro_engine.rs`).
 - [x] Created Linux non-root udev rules installer (`scripts/install_udev.sh`).
-- [x] Created zero-install HTML5 WebHID configurator (`web/index.html`).
 
 ---
 

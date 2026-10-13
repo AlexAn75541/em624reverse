@@ -1,104 +1,68 @@
-# E-DRA EM624 Modern Mouse Configurator & Driver
+# E-DRA EM624 Mouse Configurator & Driver
 
-Cross-platform, 100% native Rust configuration application and low-level driver for the **E-DRA EM624 Gaming Mouse** (SunplusIT SPCP6662 / 6662IC sensor).
+Open-source, cross-platform driver and native configuration utility for the **E-DRA EM624 Gaming Mouse**.
 
-Completely offline and self-contained: **Zero HTML, zero webview, zero network activity.**
-
----
-
-## Hardware Identity
-
-| Attribute | Value |
-|---|---|
-| **Device Name** | E-DRA EM624 Gaming Mouse |
-| **Vendor ID (VID)** | `0x1BCF` (Sunplus Innovation Technology Inc.) |
-| **Product ID (PID)** | `0x08B8` (EM624 Gaming Mouse) |
-| **Optical Gaming Sensor** | SunplusIT SPCP6662 (`6662IC` / PMW3327 equivalent) |
-| **Microcontroller** | SunplusIT SPCP6651B MCU |
-| **Switches** | Huano 50M (50 million clicks rating) |
-| **Buttons** | 7 physical switches + 1 scroll wheel |
-| **Config Endpoint** | Interface 1 (`MI_01&Col04`), Usage Page `0xFF00`, Usage `0x01` |
-| **Profile Size** | Exactly 2048 bytes (`0x800` bytes) |
-| **Profile Signature** | `1B CF 08 B8` (Little-endian VID `0x1BCF` + PID `0x08B8`) |
+- **Hardware**: SunplusIT SPCP6662 (6662IC) Optical Sensor + SPCP6651B MCU
+- **USB IDs**: Vendor ID `0x1BCF`, Product ID `0x08B8`
+- **Target Interface**: Interface 1 Col04 (`Usage Page 0xFF00`, `Usage 0x01`)
+- **Compatibility**: Windows 10/11 & Linux (x86_64)
 
 ---
 
 ## Features
 
-- **100% Native Desktop GUI (eframe / egui)**: Instant startup, hardware-accelerated, offline desktop interface on both Windows and Linux.
-- **Physical Mouse Visualizer**: Center display featuring large PC mouse layout with hardware badges `(1)` through `(7)` pointing to physical switch positions.
-- **14-Step Calibrated DPI Sliders**: Full optical resolution tuning from `200` to `10,000 DPI` matching official sensor calibration steps.
-- **RGB Backlight Control**: 24-bit color pickers for each active stage.
-- **Mode Dispatch**: Support for both **Office Mode** and **Gaming Mode** button mapping tables.
-- **Authentic Game Bindings Preserved**: Retains custom gaming shortcuts (`Win+D`, `Shift+Win+S`, `Ctrl+Numpad 1`, `Ctrl+M`, `Q`, `3`, `Media keys`).
-- **MCU Safety Engine**:
-  - Clamps out-of-bounds sensor calibration nibbles (`<= 12`).
-  - Masks Stage 6 firmware lockup (`&= 0xDF`).
-  - Clears hardware button lockout bit (`0x03F9 &= 0x7F`).
-  - Recalculates all 5 hardware checksums with `(sum ^ 0x5A) & 0xFF`.
-- **Built-in Profile Converter Tool**: Import and convert legacy vendor `.bin` exports into safe `.em624` format right from the UI.
+- **100% Native Desktop GUI**: Fast, lightweight Rust GUI powered by `egui` (zero webview/Electron).
+- **Themes**: Pitch Black (OLED), Windows 11 Dark (default), and High-Contrast White.
+- **DPI Tuning**: 15 discrete hardware steps (`200` to `12,000 DPI`) with safe Stage 6 protection.
+- **Keybinding Matrix**: Full keyboard, multimedia, macro, and mouse button remapping.
+- **Automatic Device Detection**: Native OS USB PnP monitoring for seamless plug/unplug tracking.
+- **Hardware Sniffer**: Built-in Windows Raw Input packet listener (`em624 listen`).
 
 ---
 
-## Quick Start (Windows)
+## Quick Start
 
-### 1. Launch the Native GUI
-Simply run `em624.exe` or launch from PowerShell:
-```powershell
-.\target\debug\em624.exe
-```
-Or explicitly:
-```powershell
-.\target\debug\em624.exe gui
-```
+### Build & Run GUI
+```bash
+# Debug run
+cargo run
 
-### 2. Apply a Profile via CLI (Headless)
-
-#### Load Gaming Profile (WarThunder / Valorant+CS2 / Bodycam)
-```powershell
-.\target\debug\em624.exe apply-profile exampleProfiles\WarThunder.em624
+# Optimized release build
+cargo run --release
 ```
 
-#### Load Productivity Profile (Daily Use)
+### CLI Subcommands
 ```powershell
-.\target\debug\em624.exe apply-profile exampleProfiles\DailyUse.em624
-```
+# Probe active mouse settings over USB HID
+em624 probe
 
-### 3. Live Hardware Diagnostic (Probe Mouse State)
-```powershell
-.\target\debug\em624.exe probe
-```
-*Queries the mouse directly over USB HID and prints a live diagnostic report of active DPI levels, RGB LED colors, active profile mode, button mappings, and hardware safety registers.*
+# Apply a configuration profile directly
+em624 apply-profile exampleProfiles/DailyUse.em624
 
-### 4. Convert Stock Vendor `.bin` Profiles
-```powershell
-# Convert a single stock profile:
-.\target\debug\em624.exe convert-profile exampleProfiles\WarThunder.bin -o custom.em624
-
-# Batch-convert all stock profiles in a directory:
-.\target\debug\em624.exe convert-all exampleProfiles --buttons keep
+# Sniff live hardware button clicks, wheel, and hotkeys
+em624 listen
 ```
 
 ---
 
-## Linux Support
+## Linux Setup
 
-See [`LINUX.md`](./LINUX.md) for system dependencies (Ubuntu, Fedora, Arch Linux) and udev rules for unprivileged USB HID communication.
+Install udev rules to allow non-root access to the mouse:
+```bash
+sudo bash scripts/install_udev.sh
+```
 
 ---
 
 ## Documentation
 
-- [`BUTTON_SPEC.md`](./BUTTON_SPEC.md): Complete button bytecode matrix, PCB switch routing, and opcode reference.
-- [`MIGRATION.md`](./MIGRATION.md): Migration guide from official vendor software (`EM624 Mouse.exe`).
-- [`AGENTS.md`](./AGENTS.md): Full technical specification, decompiled assembly addresses, and recovery procedure.
-- [`LINUX.md`](./LINUX.md): Linux setup, dependencies, and udev rules.
+- [`AGENTS.md`](./AGENTS.md): Hardware reverse-engineering specifications, USB HID protocol, and recovery guide.
+- [`BUTTON_SPEC.md`](./BUTTON_SPEC.md): Button bytecode matrix, PCB switch routing, and opcode reference.
+- [`MIGRATION.md`](./MIGRATION.md): Migration guide from stock vendor software.
+- [`LINUX.md`](./LINUX.md): Linux setup, build prerequisites, and troubleshooting.
 
 ---
 
-## License & Disclaimer
+## License
 
-This project is licensed under the **MIT License** — see the [LICENSE](./LICENSE) file for details.
-
-### Trademark Notice
-**E-DRA** and all related marks and logos are trademarks or registered trademarks of their respective owners. This project is an independent open-source reverse-engineering effort developed for interoperability, accessibility, and hardware preservation. It is not affiliated with, sponsored by, or endorsed by E-DRA, Sunplus Innovation Technology Inc., or any of their affiliates. All brand names, product models, and trademarks are used strictly for device identification and compatibility reference.
+MIT License. Independent open-source project for interoperability and hardware preservation. Not affiliated with E-DRA or Sunplus Innovation Technology Inc.

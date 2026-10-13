@@ -55,8 +55,3 @@ This document tracks all hardware capabilities, firmware registers, and driver f
 - **Udev Rule**: Grants non-root write access to `hidraw*` and `usb` devices with `1bcf:08b8`.
 - **Remaining Task**: Optional single-file AppImage bundle packaging.
 
----
-
-## 6. Zero-Install WebHID Configurator — [SOLVED & IMPLEMENTED]
-- **Status**: Fully implemented in `web/index.html`.
-- Allows configuring DPI stages, polling rate, LED backlight modes, and flashing EEPROM over Chrome/Edge WebHID without installing any software or runtime.

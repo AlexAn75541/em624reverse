@@ -22,13 +22,18 @@ extracted_assets/
 # Profile backups & temporary debug dumps
 *.bin.bak
 dumps/
+# Runtime cache, config, logs, and master data folder
 .cache/
 .config/
+.logs/
+em624/
 
 # Session context logs & personal transcripts
 TODAYS_SESSION_CONTEXT.md
 *SESSION_LOG*.md
 *SESSION_CONTEXT*.md
+SESSION_NOTES.md
+*SESSION_NOTES*.md
 
 # Operating System & Editor Files
 .DS_Store
