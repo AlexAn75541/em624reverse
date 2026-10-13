@@ -200,3 +200,31 @@ cargo run -- apply-profile exampleProfiles/DailyUse.em624
 ## 9. Next Milestones
 - [ ] Trace Lift-Off Distance (LOD) and hardware angle-snapping register offsets in SPCP6662 DSP.
 - [ ] Package cross-platform AppImage bundle for Linux desktop distributions.
+
+---
+
+## 10. Mandatory Optimization & Resource Budget Guidelines (Every Feature Request)
+
+Whenever new features, UI controls, hardware registers, or driver modules are added, agents and contributors must strictly enforce the following optimization standards:
+
+### 1. Memory Budget (Strict <= 10MB Working Set Target)
+- **Continuous Working Set Trimming**: The application must remain under the **10 MB Working Set** RAM limit during steady-state execution.
+- **Heap Compaction**: Every major user interaction (tab switch, modal close, profile save/load, flash) and periodic background tick must invoke `crate::platform::trim_working_set()`, ensuring Windows `HeapCompact` + `K32EmptyWorkingSet` + `SetProcessWorkingSetSize` or Linux `malloc_trim(0)` actively purges unreferenced heap pages to OS standby.
+- **Texture Downsampling**: Never store or load raw full-resolution image buffers into GPU/CPU memory if rendered smaller. Images must be resized to exact target pixel dimensions prior to `ColorImage` creation, and intermediate CPU vectors must be immediately dropped.
+- **Zero Memory Leaks**: Prevent unbounded collections in logs, event sniffers, or macro banks. Rotate or prune buffers at strict boundaries.
+
+### 2. Layout Scalability & Universal Responsiveness
+- **Universal Scrolling**: Every tab, sub-view, and dialog must be wrapped in `egui::ScrollArea::both().auto_shrink([false, false])` or maintain natural vertical growth.
+- **No Hardcoded Height Clamps**: Never clamp container panels with `allocate_ui_with_layout(..., ui.available_height())` as it causes elements (e.g. action buttons or chassis diagrams) to be clipped when display scaling (125% to 200%) or window cropping is active.
+- **High-Contrast Themes**: All UI elements must maintain legible contrast across Pitch Black (OLED), Windows 11 Dark, and High-Contrast White palettes.
+- **Typography Standards**: Never use decorative emoji glyphs or symbols that render as broken tofu boxes on non-standard Windows/Linux fonts. Use clean typographic labels and ASCII indicators.
+- **Feature Status Transparency**: Any WIP or partially reverse-engineered feature must be explicitly badged in the window title and page heading with `[UNFINISHED]`.
+
+### 3. Binary Size & Compiler Optimizations
+- **Release Profile**: Retain `opt-level = 3`, `lto = true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true` in `Cargo.toml`. The compiled release binary must not exceed 5 MB.
+- **Zero Webview Overhead**: Maintain 100% native offline Rust execution (`eframe`/`glow`). Do not add Electron, CEF, Webview2, or external JavaScript/Node runtimes to the desktop client.
+
+### 4. Verification & Quality Gates
+- **Format & Lint**: Every commit must pass `/mnt/c/Users/Aretzera/.cargo/bin/cargo.exe fmt --check` and `cargo clippy --all-targets -- -D warnings` with zero warnings.
+- **Automated Tests**: Maintain unit tests covering checksum formulas, packet framing, and macro bytecodes.
+- **Cross-Platform CI**: Ensure both Windows and Linux GitHub Actions runners complete with green build and packaging checks.
