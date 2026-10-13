@@ -17,6 +17,8 @@ pub fn trim_working_set() {
     }
 }
 
+pub fn ensure_console_allocated() {}
+
 pub fn get_process_memory_mb() -> (f32, f32) {
     if let Ok(statm) = std::fs::read_to_string("/proc/self/statm") {
         let parts: Vec<&str> = statm.split_whitespace().collect();

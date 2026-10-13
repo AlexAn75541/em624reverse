@@ -25,6 +25,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js (Latest)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'latest'
+
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'linux'
         run: |
@@ -67,7 +72,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/em624-windows-x64 | Out-Null
           Copy-Item target/${{ matrix.target }}/release/em624.exe dist/em624-windows-x64/
           Copy-Item -Recurse exampleProfiles dist/em624-windows-x64/
-          Copy-Item README.md, MIGRATION.md, BUTTON_SPEC.md, LICENSE dist/em624-windows-x64/
+          Copy-Item LICENSE dist/em624-windows-x64/
           Compress-Archive -Path dist/em624-windows-x64 -DestinationPath em624-windows-x64.zip -Force
           Get-Item em624-windows-x64.zip
 
@@ -77,7 +82,7 @@ jobs:
           mkdir -p dist/em624-linux-x64
           cp target/${{ matrix.target }}/release/em624 dist/em624-linux-x64/
           cp -r exampleProfiles dist/em624-linux-x64/
-          cp README.md LINUX.md MIGRATION.md BUTTON_SPEC.md LICENSE dist/em624-linux-x64/
+          cp LICENSE dist/em624-linux-x64/
           chmod +x dist/em624-linux-x64/em624
           cd dist
           zip -r ../em624-linux-x64.zip em624-linux-x64
@@ -109,6 +114,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Setup Node.js (Latest)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'latest'
+
       - name: Download Windows Package
         uses: actions/download-artifact@v4
         with:
@@ -136,8 +146,8 @@ jobs:
             --notes "Automated continuous build of the **E-DRA EM624 Mouse Configurator**.
 
           ### 📦 Complete Packages Included:
-          - **Windows (x64)**: \`em624-windows-x64.zip\` (Contains standalone GUI \`em624.exe\` + \`exampleProfiles/\` + documentation)
-          - **Linux (x64)**: \`em624-linux-x64.zip\` (Contains standalone GUI/CLI binary \`em624\` + \`exampleProfiles/\` + \`LINUX.md\` setup guide)
+          - **Windows (x64)**: \`em624-windows-x64.zip\` (Contains standalone GUI \`em624.exe\` + \`exampleProfiles/\` + \`LICENSE\`)
+          - **Linux (x64)**: \`em624-linux-x64.zip\` (Contains standalone GUI/CLI binary \`em624\` + \`exampleProfiles/\` + \`LICENSE\`)
 
           ### 🚀 Features:
           - **100% Native Offline Rust UI** (eframe/egui): zero HTML, zero webview, zero network activity.

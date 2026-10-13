@@ -12,7 +12,8 @@ Cargo.lock
 
 # Proprietary Extracted Assets & Decompiled Binaries
 extracted/
-assets/
+assets/*
+!assets/em624.ico
 extracted_assets/
 
 # Packet Captures

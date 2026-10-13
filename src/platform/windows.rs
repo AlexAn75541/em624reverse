@@ -49,6 +49,17 @@ pub fn trim_working_set() {
     }
 }
 
+pub fn ensure_console_allocated() {
+    unsafe {
+        if windows_sys::Win32::System::Console::AttachConsole(
+            windows_sys::Win32::System::Console::ATTACH_PARENT_PROCESS,
+        ) == 0
+        {
+            let _ = windows_sys::Win32::System::Console::AllocConsole();
+        }
+    }
+}
+
 pub fn get_process_memory_mb() -> (f32, f32) {
     unsafe {
         let handle = windows_sys::Win32::System::Threading::GetCurrentProcess();

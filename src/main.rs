@@ -1,5 +1,8 @@
+#![cfg_attr(not(test), windows_subsystem = "windows")]
+
 mod device;
 mod gui;
+pub mod i18n;
 pub mod macro_engine;
 pub mod platform;
 mod profile;
@@ -103,13 +106,39 @@ enum Commands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // If running a CLI subcommand or log-viewer, attach or allocate console.
+    // When launched as pure GUI (default on double-click), no console is ever opened.
+    if let Some(ref cmd) = cli.command {
+        if !matches!(cmd, Commands::Gui) {
+            platform::ensure_console_allocated();
+        }
+    }
+
     match cli.command {
         None | Some(Commands::Gui) => {
+            let icon_data = image::load_from_memory(include_bytes!("../assets/em624.ico"))
+                .ok()
+                .map(|img| {
+                    let rgba = img.to_rgba8();
+                    let (w, h) = rgba.dimensions();
+                    std::sync::Arc::new(eframe::egui::IconData {
+                        rgba: rgba.into_raw(),
+                        width: w,
+                        height: h,
+                    })
+                });
+
+            let mut viewport = eframe::egui::ViewportBuilder::default()
+                .with_inner_size([880.0, 640.0])
+                .with_min_inner_size([700.0, 500.0])
+                .with_title("E-DRA EM624 Gaming Mouse Configurator");
+
+            if let Some(ic) = icon_data {
+                viewport = viewport.with_icon(ic);
+            }
+
             let native_options = eframe::NativeOptions {
-                viewport: eframe::egui::ViewportBuilder::default()
-                    .with_inner_size([880.0, 640.0])
-                    .with_min_inner_size([700.0, 500.0])
-                    .with_title("E-DRA EM624 Gaming Mouse Configurator"),
+                viewport,
                 multisampling: 0,
                 depth_buffer: 0,
                 stencil_buffer: 0,

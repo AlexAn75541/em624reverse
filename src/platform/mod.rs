@@ -31,3 +31,12 @@ pub fn spawn_debug_terminal(log_path: Option<&Path>) {
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     fallback::spawn_debug_terminal(log_path);
 }
+
+pub fn ensure_console_allocated() {
+    #[cfg(target_os = "windows")]
+    windows::ensure_console_allocated();
+    #[cfg(target_os = "linux")]
+    linux::ensure_console_allocated();
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    fallback::ensure_console_allocated();
+}

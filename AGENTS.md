@@ -223,6 +223,7 @@ Whenever new features, UI controls, hardware registers, or driver modules are ad
 ### 3. Binary Size & Compiler Optimizations
 - **Release Profile**: Retain `opt-level = 3`, `lto = true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true` in `Cargo.toml`. The compiled release binary must not exceed 5 MB.
 - **Zero Webview Overhead**: Maintain 100% native offline Rust execution (`eframe`/`glow`). Do not add Electron, CEF, Webview2, or external JavaScript/Node runtimes to the desktop client.
+- **No Markdown Files in Shipped Packages**: Shipped `.zip` distribution bundles (`em624-windows-x64.zip`, `em624-linux-x64.zip`) must NEVER include `.md` documentation files (such as `README.md`, `LINUX.md`, `MIGRATION.md`, `BUTTON_SPEC.md`, `PLAN.md`, etc.). Distribution archives must contain exclusively the standalone binary (`em624.exe`/`em624`), `exampleProfiles/`, and `LICENSE`.
 
 ### 4. Verification & Quality Gates
 - **Format & Lint**: Every commit must pass `/mnt/c/Users/Aretzera/.cargo/bin/cargo.exe fmt --check` and `cargo clippy --all-targets -- -D warnings` with zero warnings.

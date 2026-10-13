@@ -6,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::device::Em624Device;
+use crate::i18n::{Language, Strings};
 use crate::macro_engine::{MacroAction, MacroBank, MacroEntry, MouseButton};
 use crate::profile::{format_hid_key_name, format_modifiers, MouseProfile, OFFICIAL_DPI_STEPS};
 
@@ -51,6 +52,8 @@ pub struct AppConfig {
     #[serde(default)]
     pub theme: ThemeMode,
     #[serde(default)]
+    pub language: Language,
+    #[serde(default)]
     pub custom_data_dir: Option<String>,
     #[serde(default)]
     pub allow_stage_6: bool,
@@ -63,6 +66,7 @@ impl Default for AppConfig {
             debug_mode: false,
             last_profile: None,
             theme: ThemeMode::PitchBlackOled,
+            language: Language::English,
             custom_data_dir: None,
             allow_stage_6: false,
         }
@@ -907,7 +911,7 @@ impl eframe::App for Em624App {
                         .color(pal.accent),
                 );
                 ui.label(
-                    egui::RichText::new("GAMING MOUSE CONFIGURATOR")
+                    egui::RichText::new(Strings::app_subtitle(self.config.language))
                         .small()
                         .color(pal.text_secondary),
                 );
@@ -916,7 +920,7 @@ impl eframe::App for Em624App {
                 match self.active_tab {
                     Tab::Advanced => {
                         ui.label(
-                            egui::RichText::new("• ADVANCED SETTINGS [UNFINISHED]")
+                            egui::RichText::new(Strings::unfinished_adv(self.config.language))
                                 .small()
                                 .strong()
                                 .color(Color32::from_rgb(255, 170, 0)),
@@ -924,7 +928,7 @@ impl eframe::App for Em624App {
                     }
                     Tab::LedLighting => {
                         ui.label(
-                            egui::RichText::new("• LED LIGHTING [UNFINISHED]")
+                            egui::RichText::new(Strings::unfinished_led(self.config.language))
                                 .small()
                                 .strong()
                                 .color(Color32::from_rgb(255, 170, 0)),
@@ -932,7 +936,7 @@ impl eframe::App for Em624App {
                     }
                     Tab::MacroManager => {
                         ui.label(
-                            egui::RichText::new("• MACRO MANAGER [UNFINISHED]")
+                            egui::RichText::new(Strings::unfinished_macro(self.config.language))
                                 .small()
                                 .strong()
                                 .color(Color32::from_rgb(255, 170, 0)),
@@ -942,7 +946,10 @@ impl eframe::App for Em624App {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.button("Check Connection").clicked() {
+                    if ui
+                        .button(Strings::check_connection(self.config.language))
+                        .clicked()
+                    {
                         self.check_connection();
                     }
 
@@ -960,6 +967,19 @@ impl eframe::App for Em624App {
                         self.config.save();
                     }
 
+                    let (lang_label, next_lang) = match self.config.language {
+                        Language::English => ("[EN]", Language::Vietnamese),
+                        Language::Vietnamese => ("[VI]", Language::English),
+                    };
+                    if ui
+                        .button(lang_label)
+                        .on_hover_text("Click to toggle language / Chuyển đổi ngôn ngữ: English / Tiếng Việt")
+                        .clicked()
+                    {
+                        self.config.language = next_lang;
+                        self.config.save();
+                    }
+
                     if self.device_connected {
                         ui.horizontal(|ui| {
                             let (rect, _) =
@@ -970,7 +990,7 @@ impl eframe::App for Em624App {
                                 Color32::from_rgb(46, 213, 115),
                             );
                             ui.label(
-                                egui::RichText::new("CONNECTED")
+                                egui::RichText::new(Strings::connected(self.config.language))
                                     .color(Color32::from_rgb(46, 213, 115))
                                     .strong(),
                             );
@@ -985,7 +1005,7 @@ impl eframe::App for Em624App {
                                 Color32::from_rgb(255, 71, 87),
                             );
                             ui.label(
-                                egui::RichText::new("DISCONNECTED")
+                                egui::RichText::new(Strings::disconnected(self.config.language))
                                     .color(Color32::from_rgb(255, 71, 87))
                                     .strong(),
                             );
@@ -997,12 +1017,36 @@ impl eframe::App for Em624App {
 
             // Tab Navigation: Advanced setting is placed immediately to the left of App Settings
             ui.horizontal(|ui| {
-                ui.selectable_value(&mut self.active_tab, Tab::GameMode, "Game Mode");
-                ui.selectable_value(&mut self.active_tab, Tab::OfficeMode, "Office Mode");
-                ui.selectable_value(&mut self.active_tab, Tab::LedLighting, "LED Lighting");
-                ui.selectable_value(&mut self.active_tab, Tab::MacroManager, "Macro Manager");
-                ui.selectable_value(&mut self.active_tab, Tab::Advanced, "Advanced");
-                ui.selectable_value(&mut self.active_tab, Tab::Settings, "App Settings");
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    Tab::GameMode,
+                    Strings::tab_game(self.config.language),
+                );
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    Tab::OfficeMode,
+                    Strings::tab_office(self.config.language),
+                );
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    Tab::LedLighting,
+                    Strings::tab_led(self.config.language),
+                );
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    Tab::MacroManager,
+                    Strings::tab_macro(self.config.language),
+                );
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    Tab::Advanced,
+                    Strings::tab_advanced(self.config.language),
+                );
+                ui.selectable_value(
+                    &mut self.active_tab,
+                    Tab::Settings,
+                    Strings::tab_settings(self.config.language),
+                );
             });
             ui.add_space(6.0);
         });
@@ -1011,19 +1055,24 @@ impl eframe::App for Em624App {
         egui::TopBottomPanel::bottom("bottom_toolbar").show(ctx, |ui| {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.button("Read from Mouse").clicked() {
+                if ui
+                    .button(Strings::btn_read(self.config.language))
+                    .clicked()
+                {
                     self.read_from_mouse();
                 }
 
                 if ui
                     .add(
-                        egui::Button::new(egui::RichText::new("Flash to Mouse").strong().color(
-                            if self.config.theme == ThemeMode::LightWhite {
-                                Color32::WHITE
-                            } else {
-                                Color32::BLACK
-                            },
-                        ))
+                        egui::Button::new(
+                            egui::RichText::new(Strings::btn_flash(self.config.language))
+                                .strong()
+                                .color(if self.config.theme == ThemeMode::LightWhite {
+                                    Color32::WHITE
+                                } else {
+                                    Color32::BLACK
+                                }),
+                        )
                         .fill(pal.accent),
                     )
                     .clicked()
@@ -1035,9 +1084,9 @@ impl eframe::App for Em624App {
 
                 let is_gaming = self.profile.raw[0x00a4] == 0x01;
                 let mode_btn_text = if is_gaming {
-                    "Select Mode: [Gaming Mode]"
+                    Strings::btn_mode_gaming(self.config.language)
                 } else {
-                    "Select Mode: [Office Mode]"
+                    Strings::btn_mode_office(self.config.language)
                 };
                 if ui
                     .add(
@@ -1062,7 +1111,10 @@ impl eframe::App for Em624App {
 
                 ui.separator();
 
-                if ui.button("Load Profile").clicked() {
+                if ui
+                    .button(Strings::btn_load(self.config.language))
+                    .clicked()
+                {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Profiles (*.em624, *.bin)", &["em624", "bin"])
                         .pick_file()
@@ -1071,7 +1123,10 @@ impl eframe::App for Em624App {
                     }
                 }
 
-                if ui.button("Save Profile").clicked() {
+                if ui
+                    .button(Strings::btn_save(self.config.language))
+                    .clicked()
+                {
                     if let Some(path) = rfd::FileDialog::new()
                         .add_filter("Safe EM624 Profile (*.em624)", &["em624"])
                         .set_file_name("custom_profile.em624")
@@ -1539,18 +1594,42 @@ impl Em624App {
     }
 
     fn render_button_mode_tab(&mut self, ui: &mut egui::Ui, is_gaming: bool) {
+        let _pal = self.palette();
+        let lang = self.config.language;
+        let avail_w = ui.available_width();
+        let avail_h = ui.available_height();
+
+        // Responsive proportional column widths based on available width
+        // On widescreen: expands up to 450px left, 460px right
+        // On compact/scaled window: fits down to 330px each
+        let col1_w = (avail_w * 0.36).clamp(330.0, 460.0);
+        let col2_w = (avail_w * 0.38).clamp(330.0, 480.0);
+        let total_content_w = col1_w + col2_w + 32.0;
+
+        // Smart horizontal and vertical viewport centering
+        let pad_x = ((avail_w - total_content_w) * 0.5).max(0.0);
+        let pad_y = ((avail_h - 520.0) * 0.40).clamp(8.0, 80.0);
+
+        // Smart scale factor for the hardware mouse chassis diagram
+        let mouse_scale = (col2_w / 380.0).clamp(0.85, 1.30);
+
+        ui.add_space(pad_y);
         ui.horizontal(|ui| {
-            // Left Column: Button List (Fixed 340px width, fully scrollable)
+            if pad_x > 0.0 {
+                ui.add_space(pad_x);
+            }
+
+            // Left Column: Button List
             ui.vertical(|ui| {
-                ui.set_width(340.0);
+                ui.set_width(col1_w);
                 ui.add_space(4.0);
                 ui.heading(if is_gaming {
-                    "Gaming Mode Bindings"
+                    Strings::game_mode_title(lang)
                 } else {
-                    "Office Mode Bindings"
+                    Strings::office_mode_title(lang)
                 });
                 ui.label(
-                    egui::RichText::new("Select a key below, then click 'Change Key Bind':")
+                    egui::RichText::new(Strings::select_key_hint(lang))
                         .small()
                         .color(Color32::from_rgb(140, 160, 190)),
                 );
@@ -1564,17 +1643,27 @@ impl Em624App {
 
                 self.hovered_button = None;
 
-                let display_order = [
-                    (1, "[1] Left Click"),
-                    (4, "[2] Right Click"),
-                    (7, "[3] Middle Click"),
-                    (2, "[4] Forward (Side 1)"),
-                    (5, "[5] Backward (Side 2)"),
-                    (9, "[6] DPI + (Top Front)"),
-                    (8, "[7] DPI - (Top Back)"),
-                ];
+                let display_order = match lang {
+                    Language::English => [
+                        (1, "[1] Left Click"),
+                        (4, "[2] Right Click"),
+                        (7, "[3] Middle Click"),
+                        (2, "[4] Forward (Side 1)"),
+                        (5, "[5] Backward (Side 2)"),
+                        (9, "[6] DPI + (Top Front)"),
+                        (8, "[7] DPI - (Top Back)"),
+                    ],
+                    Language::Vietnamese => [
+                        (1, "[1] Chuột trái"),
+                        (4, "[2] Chuột phải"),
+                        (7, "[3] Chuột giữa"),
+                        (2, "[4] Tiến (Hông 1)"),
+                        (5, "[5] Lùi (Hông 2)"),
+                        (9, "[6] Tăng DPI (Trước)"),
+                        (8, "[7] Giảm DPI (Sau)"),
+                    ],
+                };
 
-                let card_w = ui.available_width();
                 for (slot_idx, label) in display_order {
                     if let Some(btn) = buttons.get(slot_idx - 1) {
                         let is_selected = self.selected_slot == slot_idx;
@@ -1607,7 +1696,7 @@ impl Em624App {
                         };
 
                         let (rect, response) =
-                            ui.allocate_exact_size(Vec2::new(card_w, 36.0), egui::Sense::click());
+                            ui.allocate_exact_size(Vec2::new(col1_w, 36.0), egui::Sense::click());
 
                         if response.clicked() {
                             self.selected_slot = slot_idx;
@@ -1669,9 +1758,9 @@ impl Em624App {
 
                 ui.add_space(10.0);
                 let sel_button_num = slot_idx_to_button_num(self.selected_slot);
-                let change_btn_text = format!("Change Key Bind (Button [{}])", sel_button_num);
+                let change_btn_text = Strings::change_key_bind_btn(lang, sel_button_num);
                 let change_resp = ui.add_sized(
-                    [ui.available_width(), 36.0],
+                    [col1_w, 36.0],
                     egui::Button::new(
                         egui::RichText::new(change_btn_text)
                             .strong()
@@ -1686,33 +1775,40 @@ impl Em624App {
                 }
             });
 
+            ui.add_space(16.0);
             ui.separator();
+            ui.add_space(16.0);
 
-            // Right Column: Centered Hardware Mouse Picture (Fatter, 330x340px)
+            // Right Column: Centered Hardware Mouse Picture with Smart Scaling
             ui.vertical(|ui| {
-                ui.set_min_width(340.0);
+                ui.set_width(col2_w);
                 ui.add_space(6.0);
                 ui.label(
-                    egui::RichText::new("E-DRA EM624 HARDWARE SWITCH MATRIX")
+                    egui::RichText::new(Strings::switch_matrix_title(lang))
                         .strong()
                         .color(Color32::from_rgb(140, 160, 190)),
                 );
                 ui.add_space(4.0);
 
-                self.render_mouse_photo(ui);
+                self.render_mouse_photo(ui, mouse_scale);
 
                 ui.add_space(6.0);
                 ui.label(
-                    egui::RichText::new("SunplusIT SPCP6662 Optical Sensor • Huano 50M Switches")
+                    egui::RichText::new(Strings::switch_spec(lang))
                         .small()
                         .color(Color32::from_rgb(120, 140, 170)),
                 );
             });
+
+            if pad_x > 0.0 {
+                ui.add_space(pad_x);
+            }
         });
+        ui.add_space(pad_y);
     }
 
-    fn render_mouse_photo(&mut self, ui: &mut egui::Ui) {
-        let display_size = Vec2::new(320.0, 340.0);
+    fn render_mouse_photo(&mut self, ui: &mut egui::Ui, scale: f32) {
+        let display_size = Vec2::new(320.0 * scale, 340.0 * scale);
         let (rect, _response) = ui.allocate_exact_size(display_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
 
@@ -1730,15 +1826,15 @@ impl Em624App {
         let cx = rect.center().x;
         let cy = rect.center().y;
 
-        // Numbered badges [1] through [7] directly over the switches on the fatter mouse
+        // Numbered badges [1] through [7] scaled proportionally
         let badges = [
-            (1, Pos2::new(cx - 46.0, cy - 75.0), "[1]"), // Button 1: Left Click
-            (4, Pos2::new(cx + 46.0, cy - 75.0), "[2]"), // Button 2: Right Click
-            (7, Pos2::new(cx, cy - 100.0), "[3]"),       // Button 3: Wheel Click
-            (2, Pos2::new(cx - 96.0, cy - 28.0), "[4]"), // Button 4: Side Forward
-            (5, Pos2::new(cx - 96.0, cy + 14.0), "[5]"), // Button 5: Side Backward
-            (9, Pos2::new(cx, cy - 30.0), "[6]"),        // Button 6: DPI +
-            (8, Pos2::new(cx, cy - 2.0), "[7]"),         // Button 7: DPI -
+            (1, Pos2::new(cx - 46.0 * scale, cy - 75.0 * scale), "[1]"), // Button 1: Left Click
+            (4, Pos2::new(cx + 46.0 * scale, cy - 75.0 * scale), "[2]"), // Button 2: Right Click
+            (7, Pos2::new(cx, cy - 100.0 * scale), "[3]"),               // Button 3: Wheel Click
+            (2, Pos2::new(cx - 96.0 * scale, cy - 28.0 * scale), "[4]"), // Button 4: Side Forward
+            (5, Pos2::new(cx - 96.0 * scale, cy + 14.0 * scale), "[5]"), // Button 5: Side Backward
+            (9, Pos2::new(cx, cy - 30.0 * scale), "[6]"),                // Button 6: DPI +
+            (8, Pos2::new(cx, cy - 2.0 * scale), "[7]"),                 // Button 7: DPI -
         ];
 
         for (slot_idx, pos, text) in badges {
@@ -1757,7 +1853,7 @@ impl Em624App {
                 Color32::from_rgb(0, 242, 254)
             };
 
-            let badge_rect = Rect::from_center_size(pos, Vec2::new(28.0, 20.0));
+            let badge_rect = Rect::from_center_size(pos, Vec2::new(28.0 * scale, 20.0 * scale));
             let badge_resp = ui.interact(
                 badge_rect,
                 ui.id().with(("badge", slot_idx)),
@@ -1781,7 +1877,7 @@ impl Em624App {
                 pos,
                 egui::Align2::CENTER_CENTER,
                 text,
-                egui::FontId::monospace(11.0),
+                egui::FontId::monospace(11.0 * scale),
                 text_color,
             );
         }
@@ -2459,14 +2555,28 @@ impl Em624App {
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("About & Hardware Specifications");
-            ui.label("• Device: E-DRA EM624 Gaming Mouse (7D + 1 Wheel)");
-            ui.label("• Optical Sensor: SunplusIT SPCP6662 (6662IC) • 15 discrete DPI steps (200..12000 DPI)");
-            ui.label("• MCU Controller: SunplusIT SPCP6651B");
-            ui.label("• Switches: Huano 50M rated");
+            ui.heading("About E-DRA EM624 Configurator");
+            ui.add_space(4.0);
+            ui.label("E-DRA EM624 Mouse Configurator is an open-source, lightweight native driver and configuration utility built by reverse-engineering the stock SunplusIT firmware and USB HID protocol. It provides fast, offline profile management, calibrated 15-step DPI tuning, switch remapping, and EEPROM flashing without proprietary bloat or background services.");
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Author:").strong());
+                ui.hyperlink_to("AlexAn75541", "https://github.com/AlexAn75541");
+            });
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("GitHub Repository:").strong());
+                ui.hyperlink_to(
+                    "https://github.com/AlexAn75541/em624reverse",
+                    "https://github.com/AlexAn75541/em624reverse",
+                );
+            });
+            ui.add_space(4.0);
             let (ws_mb, priv_mb) = get_process_memory_mb();
-            ui.label(format!("• Memory Footprint: {:.1} MB Working Set (RAM) / {:.1} MB Private Commit", ws_mb, priv_mb));
-            ui.label("• Communication: 100% offline, native Rust, zero network or external runtime dependencies");
+            ui.label(format!(
+                "• Live Memory Usage: {:.1} MB Working Set (Private: {:.1} MB) — budget <= 10MB",
+                ws_mb, priv_mb
+            ));
         });
     }
 }
