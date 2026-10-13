@@ -1,5 +1,6 @@
 mod device;
 mod gui;
+pub mod macro_engine;
 mod profile;
 #[cfg(target_os = "windows")]
 mod raw_input;

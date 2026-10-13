@@ -189,17 +189,15 @@ cargo run -- apply-profile exampleProfiles/DailyUse.em624
 - [x] Decoded 2048-byte profile binary format (DPI stages, colors, active stage masks).
 - [x] Successfully write custom DPI levels and custom RGB LED colors into mouse hardware.
 - [x] Decoded exact 12-key button mapping tables (Office mode `0x00C0` and Gaming mode `0x00F1`).
-- [x] Reverse-engineered exact Sunplus checksum algorithm: `(sum ^ 0x5a) & 0xff`.
-- [x] Added `--buttons standard` (restoring true Forward/Back side buttons) and `--buttons keep` (preserving profile-specific keybindings).
-- [x] Cleaned repository structure (all `.bin` debug dumps consolidated into `dumps/`, `.gitignore` updated).
-
-### Known Issue: Fixed & Resolved
-- **Previous Side Button Issue**: Previously, side buttons were triggering 'N' and 'K' because `DailyUse.bin` was used as an inflexible baseline.
-- **Resolution**: Added `--buttons standard` (default) which writes standard HID mouse Forward (`0x08`) and Backward (`0x10`) to keys 2 and 5, while recalculating all checksums with `(sum ^ 0x5A) & 0xFF`. Users can also pass `--buttons keep` to retain profile-specific game keys (like Space and Q in Valorant).
+- [x] Reverse-engineered exact Sunplus checksum algorithm: `(sum ^ 0x5a) & 0xff` across 5 sectors.
+- [x] Implemented `--buttons standard` and `--buttons keep` with live profile verification.
+- [x] Built Windows Raw Input hardware packet sniffer (`listen` subcommand).
+- [x] Reverse-engineered EEPROM macro bytecode format and instruction set (`src/macro_engine.rs`).
+- [x] Created Linux non-root udev rules installer (`scripts/install_udev.sh`).
+- [x] Created zero-install HTML5 WebHID configurator (`web/index.html`).
 
 ---
 
 ## 9. Next Milestones
-- [ ] Refine 6-button mapping matrix (Left, Right, Middle, Forward, Back, DPI Cycle) for full custom keybinds.
-- [ ] Build zero-install WebHID web UI (HTML5/WebHID) for browser-based configuration.
-- [ ] Package cross-platform Tauri v2 desktop application with system tray profile switching.
+- [ ] Trace Lift-Off Distance (LOD) and hardware angle-snapping register offsets in SPCP6662 DSP.
+- [ ] Package cross-platform AppImage bundle for Linux desktop distributions.

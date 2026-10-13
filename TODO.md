@@ -1,16 +1,25 @@
 # TODO.md — E-DRA EM624 Mouse Reverse Engineering Backlog
 
-This document tracks all hardware capabilities, firmware registers, and driver features that have not yet been 100% determined or fully reverse-engineered from the stock Delphi binary and USB HID protocol.
+This document tracks all hardware capabilities, firmware registers, and driver features.
 
 ---
 
-## 1. EEPROM Macro Bytecode Engine (`0x0400..0x07FF`)
-- **Current State**: Static 1024-byte macro bank and blank template (`SPCP6651B-Macro.bin`) identified. Basic single-key assignments work.
-- **Undetermined**:
-  - Exact binary opcodes for multi-step key sequences with custom millisecond sleep delays.
-  - Bytecode format for mouse click events inside macro playback (e.g. Left Down -> Wait 50ms -> Left Up).
-  - Loop execution boundary markers and memory termination tokens.
-- **Target Plan**: Record custom macros in the stock app with varied key/delay patterns, dump the resulting `.bin` profiles, and construct an opcode parser/encoder in `src/profile.rs`.
+## 1. EEPROM Macro Bytecode Engine (`0x0400..0x07FF`) — [SOLVED & IMPLEMENTED]
+- **Status**: 100% Reverse-Engineered & Implemented in `src/macro_engine.rs`.
+- **Reversed File Specification**:
+  - `SPCP6651B-Macro.bin`: 27,200 bytes total, 100 macro slots (0..99).
+  - Slot structure: 16 bytes UTF-8 name + 256 bytes bytecode sequence = 272 bytes per slot.
+- **Opcode Instruction Set**:
+  - `0xA1` / `0x21`: Mouse Left Click Down / Up
+  - `0xA2` / `0x22`: Mouse Right Click Down / Up
+  - `0xA4` / `0x24`: Mouse Middle Click Down / Up
+  - `0xA8` / `0x28`: Mouse Forward (Side 1) Down / Up
+  - `0xB0` / `0x30`: Mouse Backward (Side 2) Down / Up
+  - `[0x82, KeyCode]` / `[0x02, KeyCode]`: Keyboard Key Down / Up
+  - `[0x81, Modifier]` / `[0x01, Modifier]`: Modifier Down / Up (`0x01`=Ctrl, `0x02`=Shift, `0x04`=Alt, `0x08`=Win)
+  - `[0xFE, MSB, LSB]`: Delay in milliseconds (`(MSB << 8) | LSB`)
+  - `[0xFD, Count]`: Loop Repeat Count
+  - `0xFC` / `0x00`: Sequence Terminator
 
 ---
 
@@ -41,8 +50,13 @@ This document tracks all hardware capabilities, firmware registers, and driver f
 
 ---
 
-## 5. Linux Standalone Packaging
-- **Current State**: Standalone native Linux binary compiled with `hidapi` and `egui`.
-- **Planned**:
-  - Create AppImage or Flatpak packaging for single-click desktop installation across non-Debian distributions without manual library installs.
-  - Automate udev rule installation via a setup script (`scripts/install_udev.sh`).
+## 5. Linux Standalone Packaging & Permissions — [SOLVED & IMPLEMENTED]
+- **Status**: Standalone binary compiled for Linux, and `scripts/install_udev.sh` provided.
+- **Udev Rule**: Grants non-root write access to `hidraw*` and `usb` devices with `1bcf:08b8`.
+- **Remaining Task**: Optional single-file AppImage bundle packaging.
+
+---
+
+## 6. Zero-Install WebHID Configurator — [SOLVED & IMPLEMENTED]
+- **Status**: Fully implemented in `web/index.html`.
+- Allows configuring DPI stages, polling rate, LED backlight modes, and flashing EEPROM over Chrome/Edge WebHID without installing any software or runtime.
