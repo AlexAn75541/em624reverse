@@ -5,7 +5,7 @@ Open-source, cross-platform driver and native configuration utility for the **E-
 - **Hardware**: SunplusIT SPCP6662 (6662IC) Optical Sensor + SPCP6651B MCU
 - **USB IDs**: Vendor ID `0x1BCF`, Product ID `0x08B8`
 - **Target Interface**: Interface 1 Col04 (`Usage Page 0xFF00`, `Usage 0x01`)
-- **Compatibility**: Windows 10/11 & Linux (x86_64)
+- **Compatibility**: Windows 10/11 (x64 & ARM64) & Linux (x86_64)
 
 ---
 
@@ -34,13 +34,13 @@ cargo run --release
 ### CLI Subcommands
 ```powershell
 # Probe active mouse settings over USB HID
-em624 probe
+em624-reversed probe
 
 # Apply a configuration profile directly
-em624 apply-profile exampleProfiles/DailyUse.em624
+em624-reversed apply-profile exampleProfiles/DailyUse.em624
 
 # Sniff live hardware button clicks, wheel, and hotkeys
-em624 listen
+em624-reversed listen
 ```
 
 ---

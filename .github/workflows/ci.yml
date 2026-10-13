@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Build & Package (${{ matrix.platform }})
+    name: Build & Package (${{ matrix.platform }}-${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -16,10 +16,16 @@ jobs:
         include:
           - os: ubuntu-latest
             platform: linux
+            arch: x64
             target: x86_64-unknown-linux-gnu
           - os: windows-latest
             platform: windows
+            arch: x64
             target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            platform: windows
+            arch: arm64
+            target: aarch64-pc-windows-msvc
 
     steps:
       - name: Checkout repository
@@ -29,6 +35,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 'latest'
+
+      - name: Setup MSVC for ARM64
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64_arm64
 
       - name: Install system dependencies (Linux)
         if: matrix.platform == 'linux'
@@ -49,18 +61,23 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
 
       - name: Format Check
         run: cargo fmt --all -- --check
 
       - name: Clippy / Linter
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --target ${{ matrix.target }} --all-targets -- -D warnings
 
-      - name: Unit Tests
+      - name: Unit Tests (Host Native)
+        if: matrix.target != 'aarch64-pc-windows-msvc'
         run: cargo test --release --target ${{ matrix.target }}
+
+      - name: Unit Tests (Compile Check for Cross-Target)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        run: cargo test --no-run --release --target ${{ matrix.target }}
 
       - name: Build Release Binary
         run: cargo build --release --target ${{ matrix.target }}
@@ -69,39 +86,32 @@ jobs:
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path dist/em624-windows-x64 | Out-Null
-          Copy-Item target/${{ matrix.target }}/release/em624.exe dist/em624-windows-x64/
-          Copy-Item -Recurse exampleProfiles dist/em624-windows-x64/
-          Copy-Item LICENSE dist/em624-windows-x64/
-          Compress-Archive -Path dist/em624-windows-x64 -DestinationPath em624-windows-x64.zip -Force
-          Get-Item em624-windows-x64.zip
+          $pkgName = "em624-windows-${{ matrix.arch }}"
+          New-Item -ItemType Directory -Force -Path "dist/$pkgName" | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/em624-reversed.exe" "dist/$pkgName/"
+          Copy-Item -Recurse exampleProfiles "dist/$pkgName/"
+          Copy-Item LICENSE "dist/$pkgName/"
+          Compress-Archive -Path "dist/$pkgName" -DestinationPath "$pkgName.zip" -Force
+          Get-Item "$pkgName.zip"
 
       - name: Package Linux (.zip)
         if: matrix.platform == 'linux'
         run: |
           mkdir -p dist/em624-linux-x64
-          cp target/${{ matrix.target }}/release/em624 dist/em624-linux-x64/
+          cp target/${{ matrix.target }}/release/em624-reversed dist/em624-linux-x64/
           cp -r exampleProfiles dist/em624-linux-x64/
           cp LICENSE dist/em624-linux-x64/
-          chmod +x dist/em624-linux-x64/em624
+          chmod +x dist/em624-linux-x64/em624-reversed
           cd dist
           zip -r ../em624-linux-x64.zip em624-linux-x64
           cd ..
           ls -lh em624-linux-x64.zip
 
-      - name: Upload Windows Package
-        if: matrix.platform == 'windows'
+      - name: Upload Package Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: package-windows
-          path: em624-windows-x64.zip
-
-      - name: Upload Linux Package
-        if: matrix.platform == 'linux'
-        uses: actions/upload-artifact@v4
-        with:
-          name: package-linux
-          path: em624-linux-x64.zip
+          name: package-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ matrix.platform == 'windows' && format('em624-windows-{0}.zip', matrix.arch) || 'em624-linux-x64.zip' }}
 
   prerelease:
     name: Publish Pre-Release
@@ -119,16 +129,22 @@ jobs:
         with:
           node-version: 'latest'
 
-      - name: Download Windows Package
+      - name: Download Windows x64 Package
         uses: actions/download-artifact@v4
         with:
-          name: package-windows
+          name: package-windows-x64
           path: packages
 
-      - name: Download Linux Package
+      - name: Download Windows ARM64 Package
         uses: actions/download-artifact@v4
         with:
-          name: package-linux
+          name: package-windows-arm64
+          path: packages
+
+      - name: Download Linux x64 Package
+        uses: actions/download-artifact@v4
+        with:
+          name: package-linux-x64
           path: packages
 
       - name: List Downloaded Packages
@@ -141,23 +157,26 @@ jobs:
         run: |
           gh release create "pre-release" \
             packages/em624-windows-x64.zip \
+            packages/em624-windows-arm64.zip \
             packages/em624-linux-x64.zip \
             --title "E-DRA EM624 Mouse Configurator (Pre-Release)" \
             --notes "Automated continuous build of the **E-DRA EM624 Mouse Configurator**.
 
-          ### 📦 Complete Packages Included:
-          - **Windows (x64)**: \`em624-windows-x64.zip\` (Contains standalone GUI \`em624.exe\` + \`exampleProfiles/\` + \`LICENSE\`)
-          - **Linux (x64)**: \`em624-linux-x64.zip\` (Contains standalone GUI/CLI binary \`em624\` + \`exampleProfiles/\` + \`LICENSE\`)
+### 📦 Complete Packages Included:
+- **Windows (x64)**: \`em624-windows-x64.zip\` (Contains standalone GUI \`em624-reversed.exe\` + \`exampleProfiles/\` + \`LICENSE\`)
+- **Windows on ARM (ARM64)**: \`em624-windows-arm64.zip\` (Contains standalone GUI \`em624-reversed.exe\` + \`exampleProfiles/\` + \`LICENSE\`)
+- **Linux (x64)**: \`em624-linux-x64.zip\` (Contains standalone GUI/CLI binary \`em624-reversed\` + \`exampleProfiles/\` + \`LICENSE\`)
 
-          ### 🚀 Features:
-          - **100% Native Offline Rust UI** (eframe/egui): zero HTML, zero webview, zero network activity.
-          - Proportioned mouse layout with numbered badges (1..7).
-          - Real-time 14-step calibrated DPI tuning (\`200\` to \`10,000 DPI\`) for SunplusIT SPCP6662.
-          - Authentic game button preservation with safe Stage 6 masking and checksum recalculation.
-          - Built-in \`.bin\` to safe \`.em624\` profile conversion tool." \
+### 🚀 Features:
+- **100% Native Offline Rust UI** (eframe/egui): zero HTML, zero webview, zero network activity.
+- Proportioned mouse layout with numbered badges (1..7).
+- Real-time 15-step calibrated DPI tuning (\`200\` to \`12,000 DPI\`) for SunplusIT SPCP6662.
+- Authentic game button preservation with safe Stage 6 masking and checksum recalculation.
+- Built-in \`.bin\` to safe \`.em624\` profile conversion tool." \
             --prerelease \
             --target "$GITHUB_SHA" || \
           gh release upload "pre-release" \
             packages/em624-windows-x64.zip \
+            packages/em624-windows-arm64.zip \
             packages/em624-linux-x64.zip \
             --clobber

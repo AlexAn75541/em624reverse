@@ -36,7 +36,7 @@ windows-sys = { version = "0.52", features = [
 winres = "0.1"
 
 [[bin]]
-name = "em624"
+name = "em624-reversed"
 path = "src/main.rs"
 
 [profile.release]

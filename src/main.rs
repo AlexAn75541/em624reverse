@@ -17,7 +17,7 @@ use device::Em624Device;
 use profile::MouseProfile;
 
 #[derive(Parser)]
-#[command(name = "em624")]
+#[command(name = "em624-reversed")]
 #[command(about = "Cross-platform driver & configuration GUI/CLI for E-DRA EM624 Gaming Mouse", long_about = None)]
 struct Cli {
     #[command(subcommand)]
