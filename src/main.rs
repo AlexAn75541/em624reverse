@@ -1,6 +1,8 @@
 mod device;
 mod gui;
 mod profile;
+#[cfg(target_os = "windows")]
+mod raw_input;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
@@ -479,98 +481,106 @@ fn run_log_viewer() -> Result<()> {
 }
 
 fn run_listener(timeout: Option<u64>) -> Result<()> {
-    let api = HidApi::new()?;
-    let endpoints = Em624Device::open_input_endpoints(&api)?;
-
-    println!("========================================================================");
-    println!("  E-DRA EM624 HARDWARE INPUT EVENT SNIFFER & PROBED PACKET LISTENER");
-    println!("  Listening to live USB HID Input Reports across all mouse interfaces...");
-    println!("  Click physical buttons, roll wheel, or trigger macros. Press Ctrl+C to stop.");
-    println!("========================================================================\n");
-
-    for (idx, ep) in endpoints.iter().enumerate() {
-        println!("  Endpoint [{}]: {}", idx + 1, ep.interface_name);
+    #[cfg(target_os = "windows")]
+    {
+        raw_input::listener::listen_windows(timeout)
     }
-    println!();
 
-    let start = std::time::Instant::now();
-    let mut buf = [0u8; 64];
+    #[cfg(not(target_os = "windows"))]
+    {
+        let api = HidApi::new()?;
+        let endpoints = Em624Device::open_input_endpoints(&api)?;
 
-    loop {
-        if let Some(t) = timeout {
-            if start.elapsed().as_secs() >= t {
-                println!("Listening timeout reached ({} seconds). Exiting.", t);
-                break;
-            }
+        println!("========================================================================");
+        println!("  E-DRA EM624 HARDWARE INPUT EVENT SNIFFER & PROBED PACKET LISTENER (LINUX)");
+        println!("  Listening to live USB HID Input Reports across all mouse interfaces...");
+        println!("  Click physical buttons, roll wheel, or trigger macros. Press Ctrl+C to stop.");
+        println!("========================================================================\n");
+
+        for (idx, ep) in endpoints.iter().enumerate() {
+            println!("  Endpoint [{}]: {}", idx + 1, ep.interface_name);
         }
+        println!();
 
-        let mut received = false;
-        for ep in &endpoints {
-            if let Ok(len) = ep.device.read_timeout(&mut buf, 10) {
-                if len > 0 {
-                    received = true;
-                    let ts = gui::chrono_or_simple_time();
-                    let hex_slice = &buf[..len];
-                    print!(
-                        "[{}] [{}] RAW [{}B]: {:02X?}",
-                        ts, ep.interface_name, len, hex_slice
-                    );
+        let start = std::time::Instant::now();
+        let mut buf = [0u8; 64];
 
-                    // Decode standard mouse report if MI_00
-                    if ep.interface_name.contains("MI_00") && len >= 3 {
-                        let btn_mask = buf[0];
-                        let mut pressed = Vec::new();
-                        if (btn_mask & 0x01) != 0 {
-                            pressed.push("Left");
-                        }
-                        if (btn_mask & 0x02) != 0 {
-                            pressed.push("Right");
-                        }
-                        if (btn_mask & 0x04) != 0 {
-                            pressed.push("Middle");
-                        }
-                        if (btn_mask & 0x08) != 0 {
-                            pressed.push("Side1(Fwd)");
-                        }
-                        if (btn_mask & 0x10) != 0 {
-                            pressed.push("Side2(Back)");
-                        }
-
-                        let dx = buf[1] as i8;
-                        let dy = buf[2] as i8;
-                        let wheel = if len >= 4 { buf[3] as i8 } else { 0 };
-
-                        print!(
-                            " -> Buttons: [{}] | dX: {:4}, dY: {:4}, Wheel: {:2}",
-                            if pressed.is_empty() {
-                                "None".to_string()
-                            } else {
-                                pressed.join("+")
-                            },
-                            dx,
-                            dy,
-                            wheel
-                        );
-                    } else if ep.interface_name.contains("Col01") && len >= 2 {
-                        // Keyboard / hotkey report
-                        print!(
-                            " -> Keyboard Modifier: 0x{:02x}, Key: 0x{:02x}",
-                            buf[0], buf[1]
-                        );
-                    } else if ep.interface_name.contains("Col02") && len >= 2 {
-                        // Consumer report
-                        print!(" -> Consumer/Media Usage: 0x{:02x}{:02x}", buf[1], buf[0]);
-                    }
-
-                    println!();
+        loop {
+            if let Some(t) = timeout {
+                if start.elapsed().as_secs() >= t {
+                    println!("Listening timeout reached ({} seconds). Exiting.", t);
+                    break;
                 }
             }
+
+            let mut received = false;
+            for ep in &endpoints {
+                if let Ok(len) = ep.device.read_timeout(&mut buf, 10) {
+                    if len > 0 {
+                        received = true;
+                        let ts = gui::chrono_or_simple_time();
+                        let hex_slice = &buf[..len];
+                        print!(
+                            "[{}] [{}] RAW [{}B]: {:02X?}",
+                            ts, ep.interface_name, len, hex_slice
+                        );
+
+                        // Decode standard mouse report if MI_00
+                        if ep.interface_name.contains("MI_00") && len >= 3 {
+                            let btn_mask = buf[0];
+                            let mut pressed = Vec::new();
+                            if (btn_mask & 0x01) != 0 {
+                                pressed.push("Left");
+                            }
+                            if (btn_mask & 0x02) != 0 {
+                                pressed.push("Right");
+                            }
+                            if (btn_mask & 0x04) != 0 {
+                                pressed.push("Middle");
+                            }
+                            if (btn_mask & 0x08) != 0 {
+                                pressed.push("Side1(Fwd)");
+                            }
+                            if (btn_mask & 0x10) != 0 {
+                                pressed.push("Side2(Back)");
+                            }
+
+                            let dx = buf[1] as i8;
+                            let dy = buf[2] as i8;
+                            let wheel = if len >= 4 { buf[3] as i8 } else { 0 };
+
+                            print!(
+                                " -> Buttons: [{}] | dX: {:4}, dY: {:4}, Wheel: {:2}",
+                                if pressed.is_empty() {
+                                    "None".to_string()
+                                } else {
+                                    pressed.join("+")
+                                },
+                                dx,
+                                dy,
+                                wheel
+                            );
+                        } else if ep.interface_name.contains("Col01") && len >= 2 {
+                            // Keyboard / hotkey report
+                            print!(
+                                " -> Keyboard Modifier: 0x{:02x}, Key: 0x{:02x}",
+                                buf[0], buf[1]
+                            );
+                        } else if ep.interface_name.contains("Col02") && len >= 2 {
+                            // Consumer report
+                            print!(" -> Consumer/Media Usage: 0x{:02x}{:02x}", buf[1], buf[0]);
+                        }
+
+                        println!();
+                    }
+                }
+            }
+
+            if !received {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
         }
 
-        if !received {
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
+        Ok(())
     }
-
-    Ok(())
 }

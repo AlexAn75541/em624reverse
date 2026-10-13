@@ -17,6 +17,7 @@ pub const PROFILE_SIZE: usize = 2048;
 pub const CHUNK_SIZE: usize = 7;
 pub const TOTAL_CHUNKS: usize = 293;
 
+#[allow(dead_code)]
 pub struct InputDevice {
     pub device: HidDevice,
     pub interface_name: String,
@@ -121,6 +122,7 @@ impl Em624Device {
     }
 
     /// Open available input endpoints (MI_00 mouse, MI_01 hotkeys/consumer) for live hardware listening
+    #[allow(dead_code)]
     pub fn open_input_endpoints(api: &HidApi) -> Result<Vec<InputDevice>> {
         let mut endpoints = Vec::new();
         for dev in api.device_list() {
