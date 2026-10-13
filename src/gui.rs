@@ -1011,7 +1011,7 @@ impl eframe::App for Em624App {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .button(format!("{} {}", Icons::REFRESH, Strings::check_connection(self.config.language)))
+                        .button(format!("{}   {}", Icons::REFRESH, Strings::check_connection(self.config.language)))
                         .clicked()
                     {
                         self.check_connection();
@@ -1055,7 +1055,7 @@ impl eframe::App for Em624App {
                             );
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "{} {}",
+                                    "{}   {}",
                                     Icons::CHECK,
                                     Strings::connected(self.config.language)
                                 ))
@@ -1074,7 +1074,7 @@ impl eframe::App for Em624App {
                             );
                             ui.label(
                                 egui::RichText::new(format!(
-                                    "{} {}",
+                                    "{}   {}",
                                     Icons::TIMES,
                                     Strings::disconnected(self.config.language)
                                 ))
@@ -1092,32 +1092,32 @@ impl eframe::App for Em624App {
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::GameMode,
-                    format!("{} {}", Icons::GAMEPAD, Strings::tab_game(self.config.language)),
+                    format!("{}   {}", Icons::GAMEPAD, Strings::tab_game(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::OfficeMode,
-                    format!("{} {}", Icons::BRIEFCASE, Strings::tab_office(self.config.language)),
+                    format!("{}   {}", Icons::BRIEFCASE, Strings::tab_office(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::LedLighting,
-                    format!("{} {}", Icons::LIGHTBULB, Strings::tab_led(self.config.language)),
+                    format!("{}   {}", Icons::LIGHTBULB, Strings::tab_led(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::MacroManager,
-                    format!("{} {}", Icons::CODE, Strings::tab_macro(self.config.language)),
+                    format!("{}   {}", Icons::CODE, Strings::tab_macro(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Advanced,
-                    format!("{} {}", Icons::COGS, Strings::tab_advanced(self.config.language)),
+                    format!("{}   {}", Icons::COGS, Strings::tab_advanced(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Settings,
-                    format!("{} {}", Icons::SETTINGS, Strings::tab_settings(self.config.language)),
+                    format!("{}   {}", Icons::SETTINGS, Strings::tab_settings(self.config.language)),
                 );
             });
             ui.add_space(6.0);
@@ -1128,7 +1128,7 @@ impl eframe::App for Em624App {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui
-                    .button(format!("{} {}", Icons::DOWNLOAD, Strings::btn_read(self.config.language)))
+                    .button(format!("{}   {}", Icons::DOWNLOAD, Strings::btn_read(self.config.language)))
                     .clicked()
                 {
                     self.read_from_mouse();
@@ -1138,7 +1138,7 @@ impl eframe::App for Em624App {
                     .add(
                         egui::Button::new(
                             egui::RichText::new(format!(
-                                "{} {}",
+                                "{}   {}",
                                 Icons::UPLOAD,
                                 Strings::btn_flash(self.config.language)
                             ))
@@ -1165,10 +1165,15 @@ impl eframe::App for Em624App {
                     } else {
                         Strings::btn_mode_office(self.config.language)
                     };
+                    let mode_icon = if is_gaming {
+                        Icons::GAMEPAD
+                    } else {
+                        Icons::BRIEFCASE
+                    };
                     if ui
                         .add(
                             egui::Button::new(
-                                egui::RichText::new(format!("{} [EXP]", mode_btn_text))
+                                egui::RichText::new(format!("{}   {} [EXP]", mode_icon, mode_btn_text))
                                     .strong()
                                     .color(if is_gaming {
                                         Color32::from_rgb(0, 242, 254)
@@ -1190,7 +1195,7 @@ impl eframe::App for Em624App {
                 ui.separator();
 
                 if ui
-                    .button(format!("{} {}", Icons::FOLDER_OPEN, Strings::btn_load(self.config.language)))
+                    .button(format!("{}   {}", Icons::FOLDER_OPEN, Strings::btn_load(self.config.language)))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -1202,7 +1207,7 @@ impl eframe::App for Em624App {
                 }
 
                 if ui
-                    .button(format!("{} {}", Icons::SAVE, Strings::btn_save(self.config.language)))
+                    .button(format!("{}   {}", Icons::SAVE, Strings::btn_save(self.config.language)))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -1222,8 +1227,6 @@ impl eframe::App for Em624App {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         egui::RichText::new(&self.status_message)
-                            .small()
-                            .italics()
                             .color(pal.text_secondary),
                     );
                 });
@@ -1837,7 +1840,7 @@ impl Em624App {
                 ui.add_space(10.0);
                 let sel_button_num = slot_idx_to_button_num(self.selected_slot);
                 let change_btn_text = format!(
-                    "{} {}",
+                    "{}   {}",
                     Icons::KEYBOARD,
                     Strings::change_key_bind_btn(lang, sel_button_num)
                 );
@@ -2577,7 +2580,7 @@ impl Em624App {
                     [280.0, 32.0],
                     egui::Button::new(
                         egui::RichText::new(format!(
-                            "{} {}",
+                            "{}   {}",
                             Icons::TERMINAL,
                             Strings::launch_terminal_btn(lang)
                         ))
