@@ -315,8 +315,86 @@ impl Default for Em624App {
     }
 }
 
+fn configure_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(windir) = std::env::var("WINDIR") {
+            candidates.push(PathBuf::from(&windir).join("Fonts").join("segoeui.ttf"));
+            candidates.push(PathBuf::from(&windir).join("Fonts").join("arial.ttf"));
+            candidates.push(PathBuf::from(&windir).join("Fonts").join("tahoma.ttf"));
+        }
+        if let Ok(sysroot) = std::env::var("SYSTEMROOT") {
+            candidates.push(PathBuf::from(&sysroot).join("Fonts").join("segoeui.ttf"));
+            candidates.push(PathBuf::from(&sysroot).join("Fonts").join("arial.ttf"));
+        }
+        candidates.push(PathBuf::from("C:\\Windows\\Fonts\\segoeui.ttf"));
+        candidates.push(PathBuf::from("C:\\Windows\\Fonts\\arial.ttf"));
+        candidates.push(PathBuf::from("C:\\Windows\\Fonts\\tahoma.ttf"));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        candidates.push(PathBuf::from(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ));
+        candidates.push(PathBuf::from(
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        ));
+        candidates.push(PathBuf::from(
+            "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
+        ));
+        candidates.push(PathBuf::from("/usr/share/fonts/TTF/DejaVuSans.ttf"));
+        candidates.push(PathBuf::from("/usr/share/fonts/dejavu/DejaVuSans.ttf"));
+        candidates.push(PathBuf::from(
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+        ));
+        candidates.push(PathBuf::from(
+            "/usr/share/fonts/opentype/noto/NotoSans-Regular.ttf",
+        ));
+        candidates.push(PathBuf::from(
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        ));
+    }
+
+    let mut font_loaded = false;
+    for path in &candidates {
+        if path.exists() {
+            if let Ok(bytes) = fs::read(path) {
+                fonts.font_data.insert(
+                    "system_utf8_font".to_owned(),
+                    egui::FontData::from_owned(bytes),
+                );
+
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Proportional)
+                    .or_default()
+                    .insert(0, "system_utf8_font".to_owned());
+
+                fonts
+                    .families
+                    .entry(egui::FontFamily::Monospace)
+                    .or_default()
+                    .push("system_utf8_font".to_owned());
+
+                font_loaded = true;
+                break;
+            }
+        }
+    }
+
+    if font_loaded {
+        ctx.set_fonts(fonts);
+    }
+}
+
 impl Em624App {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        configure_fonts(&cc.egui_ctx);
         let mut app = Self::default();
         app.device_rx = crate::platform::start_device_monitor();
         if app.config.debug_mode {
@@ -2326,24 +2404,46 @@ impl Em624App {
 
     fn render_settings_tab(&mut self, ui: &mut egui::Ui) {
         let pal = self.palette();
+        let lang = self.config.language;
         ui.add_space(6.0);
-        ui.heading("Application Settings & Configuration");
+        ui.heading(Strings::settings_title(lang));
         ui.label(
-            egui::RichText::new(
-                "Configure display theme, interface scaling, storage paths, and hardware diagnostics.",
-            )
-            .small()
-            .color(pal.text_secondary),
+            egui::RichText::new(Strings::settings_desc(lang))
+                .small()
+                .color(pal.text_secondary),
         );
         ui.add_space(14.0);
 
         ui.group(|ui| {
-            ui.heading("Theme & Appearance");
+            ui.heading(Strings::lang_section_title(lang));
             ui.label(
-                egui::RichText::new(
-                    "Toggle display theme between pitch black OLED, Windows 11 Dark, and high-contrast White:",
-                )
-                .color(pal.text_secondary),
+                egui::RichText::new(Strings::lang_section_desc(lang)).color(pal.text_secondary),
+            );
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui
+                    .selectable_label(self.config.language == Language::English, "English")
+                    .clicked()
+                {
+                    self.config.language = Language::English;
+                    self.config.save();
+                }
+                if ui
+                    .selectable_label(self.config.language == Language::Vietnamese, "Tiếng Việt")
+                    .clicked()
+                {
+                    self.config.language = Language::Vietnamese;
+                    self.config.save();
+                }
+            });
+        });
+
+        ui.add_space(12.0);
+        ui.group(|ui| {
+            ui.heading(Strings::theme_section_title(lang));
+            ui.label(
+                egui::RichText::new(Strings::theme_section_desc(lang)).color(pal.text_secondary),
             );
             ui.add_space(8.0);
 
@@ -2383,20 +2483,18 @@ impl Em624App {
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("Master Data Storage Directory");
-            ui.label(
-                egui::RichText::new(
-                    "All dot folders (.config, .cache, .logs) are stored under master folder 'em624':",
-                )
-                .color(pal.text_secondary),
-            );
+            ui.heading(Strings::master_dir_title(lang));
+            ui.label(egui::RichText::new(Strings::master_dir_desc(lang)).color(pal.text_secondary));
             ui.add_space(6.0);
 
             let current_master = self.config.get_master_data_dir();
             ui.label(
-                egui::RichText::new(format!("Active Master Folder: {}", current_master.display()))
-                    .strong()
-                    .color(pal.accent),
+                egui::RichText::new(format!(
+                    "Active Master Folder: {}",
+                    current_master.display()
+                ))
+                .strong()
+                .color(pal.accent),
             );
             ui.add_space(6.0);
 
@@ -2431,8 +2529,10 @@ impl Em624App {
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("Display Scale Factor (Static Presets)");
-            ui.label("Select a comfortable zoom level for your display resolution:");
+            ui.heading(Strings::scale_section_title(lang));
+            ui.label(
+                egui::RichText::new(Strings::scale_section_desc(lang)).color(pal.text_secondary),
+            );
             ui.add_space(6.0);
 
             ui.horizontal(|ui| {
@@ -2479,17 +2579,15 @@ impl Em624App {
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("Developer & Debug Mode");
-            ui.label(
-                "Launch dedicated native OS terminal to view live hardware logs and USB HID packets:",
-            );
+            ui.heading(Strings::dev_debug_title(lang));
+            ui.label(egui::RichText::new(Strings::dev_debug_desc(lang)).color(pal.text_secondary));
             ui.add_space(8.0);
 
             if ui
                 .add_sized(
                     [280.0, 32.0],
                     egui::Button::new(
-                        egui::RichText::new("Launch Live Debug Terminal")
+                        egui::RichText::new(Strings::launch_terminal_btn(lang))
                             .strong()
                             .color(if self.config.theme == ThemeMode::LightWhite {
                                 Color32::WHITE
@@ -2507,21 +2605,16 @@ impl Em624App {
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("Hardware Safety & Experimental Features");
+            ui.heading(Strings::safety_title(lang));
             ui.label(
-                egui::RichText::new(
-                    "Safety controls for SunplusIT SPCP6651B MCU and SPCP6662 optical sensor:",
-                )
-                .color(pal.text_secondary),
+                egui::RichText::new(Strings::safety_desc(lang))
+                    .color(pal.text_secondary),
             );
             ui.add_space(6.0);
 
             let mut allow_s6 = self.config.allow_stage_6;
             if ui
-                .checkbox(
-                    &mut allow_s6,
-                    "Allow Experimental Stage 6 DPI (Bypass Safety Clamp)",
-                )
+                .checkbox(&mut allow_s6, Strings::allow_s6_label(lang))
                 .on_hover_text(
                     "Warning: In stock firmware, enabling Stage 6 (bit 5 in byte 0x04) triggers an internal MCU interrupt deadlock that suspends physical clicks until USB replug.\nOnly enable if you understand the risks and wish to test sensor registers.",
                 )
@@ -2535,9 +2628,17 @@ impl Em624App {
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("Hardware Connection Status");
+            ui.heading(if lang == Language::Vietnamese {
+                "Trạng thái kết nối phần cứng"
+            } else {
+                "Hardware Connection Status"
+            });
             ui.horizontal(|ui| {
-                ui.label("Active Device:");
+                ui.label(if lang == Language::Vietnamese {
+                    "Thiết bị đang kết nối:"
+                } else {
+                    "Active Device:"
+                });
                 ui.label(egui::RichText::new(&self.connected_info).strong().color(
                     if self.device_connected {
                         Color32::from_rgb(46, 213, 115)
@@ -2548,24 +2649,24 @@ impl Em624App {
             });
 
             ui.add_space(6.0);
-            if ui.button("Check / Refresh Mouse Connection").clicked() {
+            if ui.button(Strings::check_connection(lang)).clicked() {
                 self.check_connection();
             }
         });
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("About E-DRA EM624 Configurator");
+            ui.heading(Strings::about_title(lang));
             ui.add_space(4.0);
-            ui.label("E-DRA EM624 Mouse Configurator is an open-source, lightweight native driver and configuration utility built by reverse-engineering the stock SunplusIT firmware and USB HID protocol. It provides fast, offline profile management, calibrated 15-step DPI tuning, switch remapping, and EEPROM flashing without proprietary bloat or background services.");
+            ui.label(Strings::about_desc(lang));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Author:").strong());
+                ui.label(egui::RichText::new(Strings::author(lang)).strong());
                 ui.hyperlink_to("AlexAn75541", "https://github.com/AlexAn75541");
             });
             ui.add_space(2.0);
             ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("GitHub Repository:").strong());
+                ui.label(egui::RichText::new(Strings::github_repo(lang)).strong());
                 ui.hyperlink_to(
                     "https://github.com/AlexAn75541/em624reverse",
                     "https://github.com/AlexAn75541/em624reverse",

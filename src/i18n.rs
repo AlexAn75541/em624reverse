@@ -264,6 +264,24 @@ impl Strings {
         }
     }
 
+    pub fn settings_title(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Application Settings & Configuration",
+            Language::Vietnamese => "Cài đặt Ứng dụng & Cấu hình",
+        }
+    }
+
+    pub fn settings_desc(lang: Language) -> &'static str {
+        match lang {
+            Language::English => {
+                "Configure display theme, interface scaling, storage paths, and hardware diagnostics."
+            }
+            Language::Vietnamese => {
+                "Định cấu hình giao diện, độ phóng đại, đường dẫn lưu trữ và chẩn đoán phần cứng."
+            }
+        }
+    }
+
     pub fn lang_section_title(lang: Language) -> &'static str {
         match lang {
             Language::English => "Language / Ngôn ngữ",
