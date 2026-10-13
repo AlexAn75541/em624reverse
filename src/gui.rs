@@ -1168,64 +1168,97 @@ impl Em624App {
                         (8, "[7] DPI - (Top Back)"),
                     ];
 
+                    let card_w = ui.available_width();
                     for (slot_idx, label) in display_order {
                         if let Some(btn) = buttons.get(slot_idx - 1) {
                             let is_selected = self.selected_slot == slot_idx;
                             let is_hovered = self.hovered_button == Some(slot_idx);
 
+                            // Background remains clean dark slate - no blinding cyan washout
                             let bg_color = if is_selected {
-                                Color32::from_rgba_premultiplied(0, 242, 254, 50)
+                                Color32::from_rgb(22, 28, 42)
                             } else if is_hovered {
-                                Color32::from_rgba_premultiplied(0, 242, 254, 25)
+                                Color32::from_rgb(26, 34, 52)
                             } else {
-                                Color32::from_rgb(20, 26, 38)
+                                Color32::from_rgb(18, 24, 36)
                             };
 
-                            let border_color = if is_selected {
-                                Color32::from_rgb(0, 242, 254)
+                            let border_stroke = if is_selected {
+                                Stroke::new(1.5_f32, Color32::from_rgb(0, 242, 254))
                             } else if is_hovered {
-                                Color32::from_rgb(0, 180, 210)
+                                Stroke::new(1.0_f32, Color32::from_rgb(70, 90, 120))
                             } else {
-                                Color32::from_rgb(36, 48, 70)
+                                Stroke::new(1.0_f32, Color32::from_rgb(36, 48, 70))
                             };
 
-                            let frame =
-                                egui::Frame::group(ui.style())
-                                    .fill(bg_color)
-                                    .stroke(Stroke::new(
-                                        if is_selected { 1.5_f32 } else { 1.0_f32 },
-                                        border_color,
-                                    ));
+                            // Flashing -> indicator towards selected key
+                            let flash_on = if is_selected {
+                                ui.ctx()
+                                    .request_repaint_after(std::time::Duration::from_millis(200));
+                                (ui.ctx().input(|i| i.time) * 2.5).fract() < 0.5
+                            } else {
+                                false
+                            };
 
-                            let response = frame.show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    if is_selected {
-                                        ui.label(
-                                            egui::RichText::new("▶")
-                                                .color(Color32::from_rgb(0, 242, 254))
-                                                .small(),
-                                        );
-                                    }
-                                    ui.label(egui::RichText::new(label).strong());
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            ui.label(
-                                                egui::RichText::new(&btn.description)
-                                                    .color(Color32::from_rgb(0, 242, 254)),
-                                            );
-                                        },
-                                    );
-                                });
-                            });
+                            let (rect, response) = ui
+                                .allocate_exact_size(Vec2::new(card_w, 36.0), egui::Sense::click());
 
-                            if response.response.hovered() {
-                                self.hovered_button = Some(slot_idx);
-                            }
-
-                            if response.response.clicked() {
+                            if response.clicked() {
                                 self.selected_slot = slot_idx;
                             }
+
+                            if response.hovered() {
+                                self.hovered_button = Some(slot_idx);
+                                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+                            }
+
+                            let painter = ui.painter();
+                            painter.rect_filled(rect, 4.0, bg_color);
+                            painter.rect_stroke(rect, 4.0, border_stroke);
+
+                            let content_rect = rect.shrink2(Vec2::new(10.0, 0.0));
+                            ui.allocate_ui_at_rect(content_rect, |content_ui| {
+                                content_ui.with_layout(
+                                    egui::Layout::left_to_right(egui::Align::Center),
+                                    |content_ui| {
+                                        // Flashing arrow or transparent placeholder
+                                        let arrow_color = if is_selected && flash_on {
+                                            Color32::from_rgb(0, 242, 254)
+                                        } else {
+                                            Color32::TRANSPARENT
+                                        };
+
+                                        content_ui.label(
+                                            egui::RichText::new("->").strong().color(arrow_color),
+                                        );
+                                        content_ui.add_space(4.0);
+
+                                        // Button Name: high contrast white
+                                        content_ui.label(
+                                            egui::RichText::new(label).strong().color(
+                                                if is_selected {
+                                                    Color32::WHITE
+                                                } else {
+                                                    Color32::from_rgb(215, 225, 240)
+                                                },
+                                            ),
+                                        );
+
+                                        // Right-aligned description: crisp cyan
+                                        content_ui.with_layout(
+                                            egui::Layout::right_to_left(egui::Align::Center),
+                                            |r_ui| {
+                                                r_ui.label(
+                                                    egui::RichText::new(&btn.description)
+                                                        .strong()
+                                                        .color(Color32::from_rgb(0, 242, 254)),
+                                                );
+                                            },
+                                        );
+                                    },
+                                );
+                            });
+
                             ui.add_space(3.0);
                         }
                     }
@@ -1319,7 +1352,7 @@ impl Em624App {
             } else if is_hovered {
                 Color32::from_rgb(0, 180, 210)
             } else {
-                Color32::from_rgba_premultiplied(10, 15, 25, 230)
+                Color32::from_rgb(14, 20, 32)
             };
             let text_color = if is_selected || is_hovered {
                 Color32::BLACK
@@ -1327,7 +1360,20 @@ impl Em624App {
                 Color32::from_rgb(0, 242, 254)
             };
 
-            let badge_rect = Rect::from_center_size(pos, Vec2::new(26.0, 18.0));
+            let badge_rect = Rect::from_center_size(pos, Vec2::new(28.0, 20.0));
+            let badge_resp = ui.interact(
+                badge_rect,
+                ui.id().with(("badge", slot_idx)),
+                egui::Sense::click(),
+            );
+            if badge_resp.clicked() {
+                self.selected_slot = slot_idx;
+            }
+            if badge_resp.hovered() {
+                self.hovered_button = Some(slot_idx);
+                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
+            }
+
             painter.rect_filled(badge_rect, 4.0, badge_bg);
             painter.rect_stroke(
                 badge_rect,
