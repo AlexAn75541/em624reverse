@@ -318,81 +318,64 @@ impl Default for Em624App {
     }
 }
 
+pub struct Icons;
+#[allow(dead_code)]
+impl Icons {
+    pub const GAMEPAD: &'static str = "\u{f11b}"; // Game Mode (nf-fa-gamepad)
+    pub const BRIEFCASE: &'static str = "\u{f0f2}"; // Office Mode (nf-fa-briefcase)
+    pub const LIGHTBULB: &'static str = "\u{f0eb}"; // LED Lighting (nf-fa-lightbulb_o)
+    pub const CODE: &'static str = "\u{f121}"; // Macro Manager (nf-fa-code)
+    pub const COGS: &'static str = "\u{f085}"; // Advanced Settings (nf-fa-cogs)
+    pub const SETTINGS: &'static str = "\u{f013}"; // App Settings (nf-fa-cog)
+    pub const CHECK: &'static str = "\u{f00c}"; // Connected (nf-fa-check)
+    pub const TIMES: &'static str = "\u{f00d}"; // Disconnected (nf-fa-times)
+    pub const REFRESH: &'static str = "\u{f021}"; // Check Connection (nf-fa-refresh)
+    pub const DOWNLOAD: &'static str = "\u{f019}"; // Read from Mouse (nf-fa-download)
+    pub const UPLOAD: &'static str = "\u{f0ee}"; // Flash to Mouse (nf-fa-upload)
+    pub const FOLDER_OPEN: &'static str = "\u{f115}"; // Load Profile (nf-fa-folder_open)
+    pub const SAVE: &'static str = "\u{f0c7}"; // Save Profile (nf-fa-save)
+    pub const TERMINAL: &'static str = "\u{f120}"; // Debug Terminal (nf-fa-terminal)
+    pub const KEYBOARD: &'static str = "\u{f11c}"; // Keybind Wizard (nf-fa-keyboard_o)
+    pub const BOLT: &'static str = "\u{f0e7}"; // Fire Key (nf-fa-bolt)
+    pub const SLIDERS: &'static str = "\u{f1de}"; // Sliders / DPI (nf-fa-sliders)
+}
+
 fn configure_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 
-    let mut candidates: Vec<PathBuf> = Vec::new();
+    // 1. Primary Text Font: Dosis-Bold (All text, Latin + Vietnamese Extended)
+    fonts.font_data.insert(
+        "Dosis-Bold".to_owned(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/Dosis-Bold.ttf")),
+    );
 
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(windir) = std::env::var("WINDIR") {
-            candidates.push(PathBuf::from(&windir).join("Fonts").join("segoeui.ttf"));
-            candidates.push(PathBuf::from(&windir).join("Fonts").join("arial.ttf"));
-            candidates.push(PathBuf::from(&windir).join("Fonts").join("tahoma.ttf"));
-        }
-        if let Ok(sysroot) = std::env::var("SYSTEMROOT") {
-            candidates.push(PathBuf::from(&sysroot).join("Fonts").join("segoeui.ttf"));
-            candidates.push(PathBuf::from(&sysroot).join("Fonts").join("arial.ttf"));
-        }
-        candidates.push(PathBuf::from("C:\\Windows\\Fonts\\segoeui.ttf"));
-        candidates.push(PathBuf::from("C:\\Windows\\Fonts\\arial.ttf"));
-        candidates.push(PathBuf::from("C:\\Windows\\Fonts\\tahoma.ttf"));
-    }
+    // 2. Symbols Suite: CascadiaMono Nerd Font (Full Nerd Font icons)
+    fonts.font_data.insert(
+        "CascadiaMono-NF".to_owned(),
+        egui::FontData::from_static(include_bytes!(
+            "../assets/fonts/CaskaydiaMonoNerdFont-Bold.ttf"
+        )),
+    );
 
-    #[cfg(not(target_os = "windows"))]
-    {
-        candidates.push(PathBuf::from(
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        ));
-        candidates.push(PathBuf::from(
-            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
-        ));
-        candidates.push(PathBuf::from(
-            "/usr/share/fonts/truetype/ubuntu/Ubuntu-R.ttf",
-        ));
-        candidates.push(PathBuf::from("/usr/share/fonts/TTF/DejaVuSans.ttf"));
-        candidates.push(PathBuf::from("/usr/share/fonts/dejavu/DejaVuSans.ttf"));
-        candidates.push(PathBuf::from(
-            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
-        ));
-        candidates.push(PathBuf::from(
-            "/usr/share/fonts/opentype/noto/NotoSans-Regular.ttf",
-        ));
-        candidates.push(PathBuf::from(
-            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        ));
-    }
+    // Proportional text: Dosis-Bold first, fallback to CascadiaMono-NF for symbols
+    let prop = fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default();
+    prop.clear();
+    prop.push("Dosis-Bold".to_owned());
+    prop.push("CascadiaMono-NF".to_owned());
 
-    let mut font_loaded = false;
-    for path in &candidates {
-        if path.exists() {
-            if let Ok(bytes) = fs::read(path) {
-                fonts.font_data.insert(
-                    "system_utf8_font".to_owned(),
-                    egui::FontData::from_owned(bytes),
-                );
+    // Monospace: CascadiaMono-NF first, fallback to Dosis-Bold
+    let mono = fonts
+        .families
+        .entry(egui::FontFamily::Monospace)
+        .or_default();
+    mono.clear();
+    mono.push("CascadiaMono-NF".to_owned());
+    mono.push("Dosis-Bold".to_owned());
 
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Proportional)
-                    .or_default()
-                    .insert(0, "system_utf8_font".to_owned());
-
-                fonts
-                    .families
-                    .entry(egui::FontFamily::Monospace)
-                    .or_default()
-                    .push("system_utf8_font".to_owned());
-
-                font_loaded = true;
-                break;
-            }
-        }
-    }
-
-    if font_loaded {
-        ctx.set_fonts(fonts);
-    }
+    ctx.set_fonts(fonts);
 }
 
 impl Em624App {
@@ -1028,7 +1011,7 @@ impl eframe::App for Em624App {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .button(Strings::check_connection(self.config.language))
+                        .button(format!("{} {}", Icons::REFRESH, Strings::check_connection(self.config.language)))
                         .clicked()
                     {
                         self.check_connection();
@@ -1071,9 +1054,13 @@ impl eframe::App for Em624App {
                                 Color32::from_rgb(46, 213, 115),
                             );
                             ui.label(
-                                egui::RichText::new(Strings::connected(self.config.language))
-                                    .color(Color32::from_rgb(46, 213, 115))
-                                    .strong(),
+                                egui::RichText::new(format!(
+                                    "{} {}",
+                                    Icons::CHECK,
+                                    Strings::connected(self.config.language)
+                                ))
+                                .color(Color32::from_rgb(46, 213, 115))
+                                .strong(),
                             );
                         });
                     } else {
@@ -1086,9 +1073,13 @@ impl eframe::App for Em624App {
                                 Color32::from_rgb(255, 71, 87),
                             );
                             ui.label(
-                                egui::RichText::new(Strings::disconnected(self.config.language))
-                                    .color(Color32::from_rgb(255, 71, 87))
-                                    .strong(),
+                                egui::RichText::new(format!(
+                                    "{} {}",
+                                    Icons::TIMES,
+                                    Strings::disconnected(self.config.language)
+                                ))
+                                .color(Color32::from_rgb(255, 71, 87))
+                                .strong(),
                             );
                         });
                     }
@@ -1101,32 +1092,32 @@ impl eframe::App for Em624App {
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::GameMode,
-                    Strings::tab_game(self.config.language),
+                    format!("{} {}", Icons::GAMEPAD, Strings::tab_game(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::OfficeMode,
-                    Strings::tab_office(self.config.language),
+                    format!("{} {}", Icons::BRIEFCASE, Strings::tab_office(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::LedLighting,
-                    Strings::tab_led(self.config.language),
+                    format!("{} {}", Icons::LIGHTBULB, Strings::tab_led(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::MacroManager,
-                    Strings::tab_macro(self.config.language),
+                    format!("{} {}", Icons::CODE, Strings::tab_macro(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Advanced,
-                    Strings::tab_advanced(self.config.language),
+                    format!("{} {}", Icons::COGS, Strings::tab_advanced(self.config.language)),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Settings,
-                    Strings::tab_settings(self.config.language),
+                    format!("{} {}", Icons::SETTINGS, Strings::tab_settings(self.config.language)),
                 );
             });
             ui.add_space(6.0);
@@ -1137,7 +1128,7 @@ impl eframe::App for Em624App {
             ui.add_space(6.0);
             ui.horizontal(|ui| {
                 if ui
-                    .button(Strings::btn_read(self.config.language))
+                    .button(format!("{} {}", Icons::DOWNLOAD, Strings::btn_read(self.config.language)))
                     .clicked()
                 {
                     self.read_from_mouse();
@@ -1146,13 +1137,17 @@ impl eframe::App for Em624App {
                 if ui
                     .add(
                         egui::Button::new(
-                            egui::RichText::new(Strings::btn_flash(self.config.language))
-                                .strong()
-                                .color(if self.config.theme == ThemeMode::LightWhite {
-                                    Color32::WHITE
-                                } else {
-                                    Color32::BLACK
-                                }),
+                            egui::RichText::new(format!(
+                                "{} {}",
+                                Icons::UPLOAD,
+                                Strings::btn_flash(self.config.language)
+                            ))
+                            .strong()
+                            .color(if self.config.theme == ThemeMode::LightWhite {
+                                Color32::WHITE
+                            } else {
+                                Color32::BLACK
+                            }),
                         )
                         .fill(pal.accent),
                     )
@@ -1195,7 +1190,7 @@ impl eframe::App for Em624App {
                 ui.separator();
 
                 if ui
-                    .button(Strings::btn_load(self.config.language))
+                    .button(format!("{} {}", Icons::FOLDER_OPEN, Strings::btn_load(self.config.language)))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -1207,7 +1202,7 @@ impl eframe::App for Em624App {
                 }
 
                 if ui
-                    .button(Strings::btn_save(self.config.language))
+                    .button(format!("{} {}", Icons::SAVE, Strings::btn_save(self.config.language)))
                     .clicked()
                 {
                     if let Some(path) = rfd::FileDialog::new()
@@ -1841,7 +1836,11 @@ impl Em624App {
 
                 ui.add_space(10.0);
                 let sel_button_num = slot_idx_to_button_num(self.selected_slot);
-                let change_btn_text = Strings::change_key_bind_btn(lang, sel_button_num);
+                let change_btn_text = format!(
+                    "{} {}",
+                    Icons::KEYBOARD,
+                    Strings::change_key_bind_btn(lang, sel_button_num)
+                );
                 let change_resp = ui.add_sized(
                     [col1_w, 36.0],
                     egui::Button::new(
@@ -2577,13 +2576,19 @@ impl Em624App {
                 .add_sized(
                     [280.0, 32.0],
                     egui::Button::new(
-                        egui::RichText::new(Strings::launch_terminal_btn(lang))
-                            .strong()
-                            .color(if self.config.theme == ThemeMode::LightWhite {
+                        egui::RichText::new(format!(
+                            "{} {}",
+                            Icons::TERMINAL,
+                            Strings::launch_terminal_btn(lang)
+                        ))
+                        .strong()
+                        .color(
+                            if self.config.theme == ThemeMode::LightWhite {
                                 Color32::WHITE
                             } else {
                                 Color32::BLACK
-                            }),
+                            },
+                        ),
                     )
                     .fill(pal.accent),
                 )

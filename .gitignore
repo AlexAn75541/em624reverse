@@ -14,6 +14,8 @@ Cargo.lock
 extracted/
 assets/*
 !assets/em624.ico
+!assets/fonts/
+!assets/fonts/**
 extracted_assets/
 
 # Packet Captures
