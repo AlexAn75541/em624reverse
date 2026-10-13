@@ -276,4 +276,15 @@ impl Em624Device {
 
         Ok(profile_data)
     }
+
+    /// Transmit Opcode 0x40 0x0D (Apply Settings / Soft Reset) to mouse MCU
+    pub fn apply_soft_reset(&self) -> Result<()> {
+        let mut cmd = [0u8; 8];
+        cmd[0] = REPORT_ID_CMD;
+        cmd[1] = 0x0d;
+        self.send_feature_report(&cmd)
+            .context("Failed to send Apply/Soft-Reset command (0x40, 0x0D)")?;
+        sleep(Duration::from_millis(15));
+        Ok(())
+    }
 }

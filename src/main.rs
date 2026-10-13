@@ -76,7 +76,11 @@ enum Commands {
         buttons: String,
     },
     /// Launch the dedicated one-way native debug log viewer terminal
-    LogViewer,
+    LogViewer {
+        /// Optional path to log file to view
+        #[arg(short, long)]
+        log_file: Option<PathBuf>,
+    },
     /// Listen in real time to mouse hardware events and probed packets as you click and move
     #[command(alias = "sniff")]
     Listen {
@@ -133,7 +137,7 @@ fn main() -> Result<()> {
 
                 let is_match = vid == device::DEFAULT_VID && pid == device::DEFAULT_PID;
                 let tag = if is_match {
-                    " [★ EM624 MATCH ★]"
+                    " [** EM624 CANDIDATE **]"
                 } else {
                     ""
                 };
@@ -312,7 +316,7 @@ fn main() -> Result<()> {
                 if (reg_lockout & 0x80) == 0 {
                     "Buttons ACTIVE [OK]"
                 } else {
-                    "⚠️ BUTTON INTERRUPT LOCKED (0x80 bit set!)"
+                    "[!] BUTTON INTERRUPT LOCKED (0x80 bit set!)"
                 }
             );
             println!(
@@ -320,7 +324,7 @@ fn main() -> Result<()> {
                 if !stage6_active {
                     "Disabled [SAFE]"
                 } else {
-                    "⚠️ ENABLED (May trigger MCU sensor hang!)"
+                    "[!] ENABLED (May trigger MCU sensor hang!)"
                 }
             );
 
@@ -393,8 +397,8 @@ fn main() -> Result<()> {
                 target_path.display()
             );
         }
-        Some(Commands::LogViewer) => {
-            run_log_viewer()?;
+        Some(Commands::LogViewer { log_file }) => {
+            run_log_viewer(log_file)?;
         }
         Some(Commands::Listen { timeout }) => {
             run_listener(timeout)?;
@@ -437,7 +441,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_log_viewer() -> Result<()> {
+fn run_log_viewer(custom_path: Option<PathBuf>) -> Result<()> {
     platform::set_console_title("E-DRA EM624 Live Debug Terminal (Read-Only)");
 
     println!("========================================================================");
@@ -445,26 +449,78 @@ fn run_log_viewer() -> Result<()> {
     println!("  Monitoring USB HID Feature Reports, Hardware Registers & EEPROM Events");
     println!("========================================================================\n");
 
-    let log_path = std::path::Path::new(".cache/debug.log");
-    let _ = std::fs::create_dir_all(".cache");
-    if !log_path.exists() {
-        let _ = std::fs::write(log_path, "[INIT] Live debug log stream initialized.\n");
+    let config = crate::gui::AppConfig::load();
+    let target_path = if let Some(p) = custom_path {
+        p
+    } else {
+        let candidate = config.logs_dir().join("debug.log");
+        if candidate.exists() {
+            candidate
+        } else {
+            let em624_path = std::path::PathBuf::from("em624/.logs/debug.log");
+            let cache_path = std::path::PathBuf::from(".cache/debug.log");
+            let logs_path = std::path::PathBuf::from(".logs/debug.log");
+            if em624_path.exists() {
+                em624_path
+            } else if logs_path.exists() {
+                logs_path
+            } else if cache_path.exists() {
+                cache_path
+            } else {
+                candidate
+            }
+        }
+    };
+
+    println!("[STREAM] Active log target: {}", target_path.display());
+    println!("[STREAM] Streaming live output from beginning of session...\n");
+
+    if let Some(parent) = target_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if !target_path.exists() {
+        let _ = std::fs::write(
+            &target_path,
+            format!(
+                "[INIT] Live debug log stream initialized for {}\n",
+                target_path.display()
+            ),
+        );
     }
 
     use std::io::{BufRead, BufReader, Write};
-    let file = std::fs::File::open(log_path)?;
+    let file = std::fs::File::open(&target_path)?;
     let mut reader = BufReader::new(file);
     let mut line = String::new();
+    let mut last_size = target_path.metadata().map(|m| m.len()).unwrap_or(0);
 
     loop {
         line.clear();
         match reader.read_line(&mut line) {
             Ok(0) => {
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                // Check if file shrank (e.g. rotated)
+                if let Ok(meta) = target_path.metadata() {
+                    let cur_size = meta.len();
+                    if cur_size < last_size {
+                        if let Ok(new_file) = std::fs::File::open(&target_path) {
+                            reader = BufReader::new(new_file);
+                            last_size = cur_size;
+                            println!(
+                                "\n[ROTATION] Detected log rotation. Reopened active log file.\n"
+                            );
+                        }
+                    } else {
+                        last_size = cur_size;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(40));
             }
             Ok(_) => {
                 print!("{}", line);
                 let _ = std::io::stdout().flush();
+                if let Ok(meta) = target_path.metadata() {
+                    last_size = meta.len();
+                }
             }
             Err(e) => {
                 eprintln!("[LOG ERROR] {}", e);

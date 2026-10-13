@@ -13,9 +13,14 @@ pub fn get_process_memory_mb() -> (f32, f32) {
     (0.0, 0.0)
 }
 
-pub fn spawn_debug_terminal() {
+pub fn spawn_debug_terminal(log_path: Option<&std::path::Path>) {
     if let Ok(exe) = std::env::current_exe() {
-        let _ = std::process::Command::new(exe).arg("log-viewer").spawn();
+        let mut cmd = std::process::Command::new(exe);
+        cmd.arg("log-viewer");
+        if let Some(p) = log_path {
+            cmd.arg("--log-file").arg(p);
+        }
+        let _ = cmd.spawn();
     }
 }
 

@@ -1,4 +1,5 @@
 pub use anyhow::Result;
+use std::path::Path;
 pub use std::sync::mpsc::Receiver;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -21,3 +22,12 @@ pub use linux::*;
 mod fallback;
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]
 pub use fallback::*;
+
+pub fn spawn_debug_terminal(log_path: Option<&Path>) {
+    #[cfg(target_os = "windows")]
+    windows::spawn_debug_terminal(log_path);
+    #[cfg(target_os = "linux")]
+    linux::spawn_debug_terminal(log_path);
+    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    fallback::spawn_debug_terminal(log_path);
+}

@@ -30,7 +30,7 @@ pub fn get_process_memory_mb() -> (f32, f32) {
     (0.0, 0.0)
 }
 
-pub fn spawn_debug_terminal() {
+pub fn spawn_debug_terminal(log_path: Option<&std::path::Path>) {
     if let Ok(exe) = std::env::current_exe() {
         let terminals = [
             "x-terminal-emulator",
@@ -40,11 +40,21 @@ pub fn spawn_debug_terminal() {
             "alacritty",
             "xterm",
         ];
+        let arg_str = if let Some(p) = log_path {
+            format!(
+                "{} log-viewer --log-file \"{}\"",
+                exe.display(),
+                p.display()
+            )
+        } else {
+            format!("{} log-viewer", exe.display())
+        };
+
         let mut spawned = false;
         for term in terminals {
             if let Ok(_child) = std::process::Command::new(term)
                 .arg("-e")
-                .arg(format!("{} log-viewer", exe.display()))
+                .arg(&arg_str)
                 .spawn()
             {
                 spawned = true;
@@ -52,7 +62,12 @@ pub fn spawn_debug_terminal() {
             }
         }
         if !spawned {
-            let _ = std::process::Command::new(exe).arg("log-viewer").spawn();
+            let mut cmd = std::process::Command::new(exe);
+            cmd.arg("log-viewer");
+            if let Some(p) = log_path {
+                cmd.arg("--log-file").arg(p);
+            }
+            let _ = cmd.spawn();
         }
     }
 }

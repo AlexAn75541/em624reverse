@@ -52,6 +52,8 @@ pub struct AppConfig {
     pub theme: ThemeMode,
     #[serde(default)]
     pub custom_data_dir: Option<String>,
+    #[serde(default)]
+    pub allow_stage_6: bool,
 }
 
 impl Default for AppConfig {
@@ -62,6 +64,7 @@ impl Default for AppConfig {
             last_profile: None,
             theme: ThemeMode::PitchBlackOled,
             custom_data_dir: None,
+            allow_stage_6: false,
         }
     }
 }
@@ -426,7 +429,8 @@ impl Em624App {
     }
 
     fn spawn_native_terminal(&self) {
-        crate::platform::spawn_debug_terminal();
+        let log_path = self.config.logs_dir().join("debug.log");
+        crate::platform::spawn_debug_terminal(Some(&log_path));
     }
 
     fn log_debug(&self, msg: &str) {
@@ -476,8 +480,12 @@ impl Em624App {
     }
 
     fn sync_settings_to_profile(&mut self) {
-        // Enforce safe stages and limit
-        self.profile.apply_safe_profile();
+        // Enforce safe stages and limit unless experimental Stage 6 is unlocked
+        if !self.config.allow_stage_6 {
+            self.profile.apply_safe_profile();
+        } else {
+            self.profile.refresh_stages();
+        }
 
         // Sync Polling Rate (byte 0x00A8): 125Hz=1, 250Hz=2, 500Hz=4, 1000Hz=15
         self.profile.raw[0x00a8] = match self.polling_rate_idx {
@@ -584,6 +592,77 @@ impl Em624App {
                 self.status_message = format!("Mouse not connected: {}", e);
             }
         }
+    }
+
+    fn switch_mode_and_forward(&mut self, new_is_gaming: bool) {
+        let mode_byte = if new_is_gaming { 0x01 } else { 0x00 };
+        let mode_name = if new_is_gaming {
+            "Gaming Mode"
+        } else {
+            "Office Mode"
+        };
+        self.profile.raw[0x00a4] = mode_byte;
+        self.sync_settings_to_profile();
+        self.save_to_cached_profile();
+
+        self.log_debug(&format!(
+            "[MODE_FORWARD] Switching mouse active mode to: {} (Byte 0x00A4 = 0x{:02X})",
+            mode_name, mode_byte
+        ));
+        self.log_debug(&format!(
+            "[MODE_FORWARD] Sector 1 Checksum (0x00BF) recalculated: 0x{:02X}",
+            self.profile.raw[0x00bf]
+        ));
+
+        let api = match HidApi::new() {
+            Ok(a) => a,
+            Err(e) => {
+                self.status_message = format!("HID API Error: {}", e);
+                self.log_debug(&format!("[HID_ERROR] {}", e));
+                return;
+            }
+        };
+
+        match Em624Device::open_auto(&api) {
+            Ok(dev) => {
+                self.status_message =
+                    format!("Forwarding {} signal to mouse hardware...", mode_name);
+                self.log_debug(
+                    "[MODE_FORWARD] Transmitting Report 0x40 Opcode 0x07 + 293 chunks + Commit 0x40 0x0E...",
+                );
+                match dev.write_profile(&self.profile.raw) {
+                    Ok(()) => {
+                        self.device_connected = true;
+                        let _ = dev.apply_soft_reset();
+                        self.status_message =
+                            format!("Mouse switched to {} successfully!", mode_name);
+                        self.log_debug(&format!(
+                            "[MODE_FORWARD] Hardware acknowledgment received! Mouse is now operating in {}.",
+                            mode_name
+                        ));
+                    }
+                    Err(e) => {
+                        self.status_message = format!("Mode switch signal failed: {}", e);
+                        self.log_debug(&format!("[MODE_FORWARD_ERROR] {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                self.device_connected = false;
+                self.status_message = format!("Mouse not connected (Saved mode to profile): {}", e);
+                self.log_debug(&format!(
+                    "[MODE_OFFLINE] Mouse offline; updated active mode in profile to {}.",
+                    mode_name
+                ));
+            }
+        }
+
+        // Switch active tab view to match new mode
+        self.active_tab = if new_is_gaming {
+            Tab::GameMode
+        } else {
+            Tab::OfficeMode
+        };
     }
 
     fn load_profile_auto(&mut self, path: PathBuf) {
@@ -819,19 +898,40 @@ impl eframe::App for Em624App {
                         .color(pal.text_secondary),
                 );
 
+                // Distinct unfinished badge next to window title
+                match self.active_tab {
+                    Tab::LedLighting => {
+                        ui.label(
+                            egui::RichText::new("• LED LIGHTING [UNFINISHED]")
+                                .small()
+                                .strong()
+                                .color(Color32::from_rgb(255, 170, 0)),
+                        );
+                    }
+                    Tab::MacroManager => {
+                        ui.label(
+                            egui::RichText::new("• MACRO MANAGER [UNFINISHED]")
+                                .small()
+                                .strong()
+                                .color(Color32::from_rgb(255, 170, 0)),
+                        );
+                    }
+                    _ => {}
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Check Connection").clicked() {
                         self.check_connection();
                     }
 
-                    let (theme_icon, next_theme) = match self.config.theme {
-                        ThemeMode::PitchBlackOled => ("🌑 OLED", ThemeMode::Windows11Dark),
-                        ThemeMode::Windows11Dark => ("🪟 Win11 Dark", ThemeMode::LightWhite),
-                        ThemeMode::LightWhite => ("☀️ Light", ThemeMode::PitchBlackOled),
+                    let (theme_label, next_theme) = match self.config.theme {
+                        ThemeMode::PitchBlackOled => ("[OLED]", ThemeMode::Windows11Dark),
+                        ThemeMode::Windows11Dark => ("[Win11 Dark]", ThemeMode::LightWhite),
+                        ThemeMode::LightWhite => ("[Light White]", ThemeMode::PitchBlackOled),
                     };
                     if ui
-                        .button(theme_icon)
-                        .on_hover_text("Click to toggle theme (OLED / Windows 11 Dark / White)")
+                        .button(theme_label)
+                        .on_hover_text("Click to toggle theme: Pitch Black OLED / Windows 11 Dark / High-Contrast White")
                         .clicked()
                     {
                         self.config.theme = next_theme;
@@ -907,6 +1007,35 @@ impl eframe::App for Em624App {
                     .clicked()
                 {
                     self.flash_to_mouse();
+                }
+
+                ui.separator();
+
+                let is_gaming = self.profile.raw[0x00a4] == 0x01;
+                let mode_btn_text = if is_gaming {
+                    "Select Mode: [Gaming Mode]"
+                } else {
+                    "Select Mode: [Office Mode]"
+                };
+                if ui
+                    .add(
+                        egui::Button::new(
+                            egui::RichText::new(mode_btn_text)
+                                .strong()
+                                .color(if is_gaming {
+                                    Color32::from_rgb(0, 242, 254)
+                                } else {
+                                    Color32::from_rgb(46, 213, 115)
+                                }),
+                        )
+                        .stroke(Stroke::new(1.0_f32, pal.card_border)),
+                    )
+                    .on_hover_text(
+                        "Click to toggle between Gaming Mode (0x01) and Office Mode (0x00) and forward the reversed configuration report to mouse hardware immediately.",
+                    )
+                    .clicked()
+                {
+                    self.switch_mode_and_forward(!is_gaming);
                 }
 
                 ui.separator();
@@ -1518,8 +1647,7 @@ impl Em624App {
 
                     ui.add_space(10.0);
                     let sel_button_num = slot_idx_to_button_num(self.selected_slot);
-                    let change_btn_text =
-                        format!("⚡ Change Key Bind (Button [{}])", sel_button_num);
+                    let change_btn_text = format!("Change Key Bind (Button [{}])", sel_button_num);
                     let change_resp = ui.add_sized(
                         [ui.available_width(), 36.0],
                         egui::Button::new(
@@ -1724,15 +1852,35 @@ impl Em624App {
                                     self.profile.dpi_stages[i].level_index.min(14) as usize;
                                 let color = self.profile.dpi_stages[i].color.clone();
 
-                                ui.label(format!("Stage {}", i + 1));
-
-                                // Stage 6 is strictly locked / non-toggleable to protect against the MCU trap
-                                if i == 5 {
-                                    let mut disabled_flag = false;
-                                    ui.add_enabled(
-                                        false,
-                                        egui::Checkbox::new(&mut disabled_flag, ""),
+                                if i == 5 && !self.config.allow_stage_6 {
+                                    ui.label("Stage 6 [Locked]").on_hover_text(
+                                        "Stage 6 is locked for hardware safety (causes Sunplus MCU freeze).\nYou can unlock it in App Settings.",
                                     );
+                                } else {
+                                    ui.label(format!("Stage {}", i + 1));
+                                }
+
+                                // Stage 6 is protected against MCU lockup unless experimental mode is active
+                                if i == 5 {
+                                    if !self.config.allow_stage_6 {
+                                        let mut disabled_flag = false;
+                                        ui.add_enabled(
+                                            false,
+                                            egui::Checkbox::new(&mut disabled_flag, ""),
+                                        )
+                                        .on_disabled_hover_text(
+                                            "Locked for Hardware Safety:\nEnabling Stage 6 (bit 5 = 1) causes an internal MCU firmware interrupt deadlock on Sunplus SPCP6651B, freezing physical button clicks until USB replug.\n\nTo unlock for testing, enable 'Allow Experimental Stage 6' in App Settings.",
+                                        );
+                                    } else {
+                                        let mut active_checked = is_active;
+                                        if ui.checkbox(&mut active_checked, "").changed() {
+                                            if active_checked {
+                                                self.profile.active_stages_mask |= 1 << i;
+                                            } else {
+                                                self.profile.active_stages_mask &= !(1 << i);
+                                            }
+                                        }
+                                    }
                                 } else {
                                     let mut active_checked = is_active;
                                     if ui.checkbox(&mut active_checked, "").changed() {
@@ -1741,8 +1889,10 @@ impl Em624App {
                                         } else {
                                             self.profile.active_stages_mask &= !(1 << i);
                                         }
-                                        self.profile.active_stages_mask &= 0xdf;
-                                        // Safety clamp
+                                        if !self.config.allow_stage_6 {
+                                            self.profile.active_stages_mask &= 0xdf;
+                                            // Safety clamp
+                                        }
                                     }
                                 }
 
@@ -1804,7 +1954,7 @@ impl Em624App {
 
     fn render_led_tab(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
-        ui.heading("LED Backlight & Lighting Effects");
+        ui.heading("LED Backlight & Lighting Effects (Unfinished)");
         ui.label(
             egui::RichText::new("Configure RGB breathing, speed, mode, and brightness:")
                 .small()
@@ -1850,7 +2000,7 @@ impl Em624App {
 
     fn render_macro_tab(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
-        ui.heading("Macro Manager");
+        ui.heading("Macro Manager (Unfinished)");
         ui.label(
             egui::RichText::new("Record, assign, and store keystroke sequences to mouse EEPROM:")
                 .small()
@@ -2079,7 +2229,7 @@ impl Em624App {
                 if ui
                     .selectable_label(
                         self.config.theme == ThemeMode::PitchBlackOled,
-                        "🌑 Pitch Black (OLED)",
+                        "Pitch Black (OLED)",
                     )
                     .clicked()
                 {
@@ -2089,7 +2239,7 @@ impl Em624App {
                 if ui
                     .selectable_label(
                         self.config.theme == ThemeMode::Windows11Dark,
-                        "🪟 Windows 11 Dark",
+                        "Windows 11 Dark",
                     )
                     .clicked()
                 {
@@ -2099,7 +2249,7 @@ impl Em624App {
                 if ui
                     .selectable_label(
                         self.config.theme == ThemeMode::LightWhite,
-                        "☀️ High-Contrast White",
+                        "High-Contrast White",
                     )
                     .clicked()
                 {
@@ -2150,7 +2300,7 @@ impl Em624App {
             if let Some(ref err) = self.custom_dir_error {
                 ui.add_space(4.0);
                 ui.label(
-                    egui::RichText::new(format!("⚠️ {}", err))
+                    egui::RichText::new(format!("[!] {}", err))
                         .color(Color32::from_rgb(255, 71, 87))
                         .strong(),
                 );
@@ -2217,7 +2367,7 @@ impl Em624App {
                 .add_sized(
                     [280.0, 32.0],
                     egui::Button::new(
-                        egui::RichText::new("🚀 Launch Live Debug Terminal")
+                        egui::RichText::new("Launch Live Debug Terminal")
                             .strong()
                             .color(if self.config.theme == ThemeMode::LightWhite {
                                 Color32::WHITE
@@ -2230,6 +2380,34 @@ impl Em624App {
                 .clicked()
             {
                 self.spawn_native_terminal();
+            }
+        });
+
+        ui.add_space(12.0);
+        ui.group(|ui| {
+            ui.heading("Hardware Safety & Experimental Features");
+            ui.label(
+                egui::RichText::new(
+                    "Safety controls for SunplusIT SPCP6651B MCU and SPCP6662 optical sensor:",
+                )
+                .color(pal.text_secondary),
+            );
+            ui.add_space(6.0);
+
+            let mut allow_s6 = self.config.allow_stage_6;
+            if ui
+                .checkbox(
+                    &mut allow_s6,
+                    "Allow Experimental Stage 6 DPI (Bypass Safety Clamp)",
+                )
+                .on_hover_text(
+                    "Warning: In stock firmware, enabling Stage 6 (bit 5 in byte 0x04) triggers an internal MCU interrupt deadlock that suspends physical clicks until USB replug.\nOnly enable if you understand the risks and wish to test sensor registers.",
+                )
+                .changed()
+            {
+                self.config.allow_stage_6 = allow_s6;
+                self.config.save();
+                self.sync_settings_to_profile();
             }
         });
 
