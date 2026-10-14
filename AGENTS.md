@@ -95,6 +95,10 @@ checksum = (sum(sector_bytes) ^ 0x5A) & 0xFF
 |---|---|---|
 | `0x0000..0x0003` | 4 bytes | Magic Hardware Signature: `1B CF 08 B8` (Little-endian VID `0x1BCF` + PID `0x08B8`) |
 | `0x0004` | 1 byte | Active DPI Stages Bitmask (`0xDF` = 5 stages, `0xFF` = 6 stages) |
+| `0x0006` | 1 byte | **Optical Sensor Orientation / DSP Axis Matrix** (`0x00` = Standard horizontal/vertical normal orientation; non-zero rotates/inverts X/Y motion by 90/180/270 degrees in SPCP6662 DSP) |
+| `0x0007` | 1 byte | LED Breathing Speed (`1`..`5`) |
+| `0x0008` | 1 byte | LED Brightness (`0`=Full, `1`=Half) |
+| `0x0018` | 1 byte | LED Lighting Mode (`0`=Breathing, `1`=Colorful, `2`=Rainbow, `3`=Flow, `4`=Waltz, `5`=4-Seasons, `6`=Off) |
 | `0x002C..0x002E` | 3 bytes | Packed DPI levels (Stage 1..6 nibbles: `[S1|S2], [S3|S4], [S5|S6]`) |
 | `0x003C..0x0053` | 24 bytes | DPI Stage RGB Colors (4 bytes per stage: `[R, G, B, 0x00]`) |
 | `0x006F..0x007F` | 17 bytes | Identifier string: `"USB Gaming Mouse\0"` |

@@ -357,8 +357,8 @@ impl Icons {
     pub const SLIDERS: &'static str = "\u{f1de}"; // Sliders / DPI (nf-fa-sliders)
 }
 
-/// Creates a widget text with exact >= 8px spacing between Nerd Font icon and text
-pub fn icon_label(icon: &str, text: &str) -> egui::WidgetText {
+/// Creates a widget text with configurable spacing between Nerd Font icon and text
+pub fn icon_label_spaced(icon: &str, text: &str, space_px: f32) -> egui::WidgetText {
     let mut job = egui::text::LayoutJob::default();
     job.append(
         icon,
@@ -371,7 +371,7 @@ pub fn icon_label(icon: &str, text: &str) -> egui::WidgetText {
     );
     job.append(
         text,
-        8.0, // 8px guaranteed separation
+        space_px,
         egui::TextFormat {
             font_id: egui::FontId::proportional(14.0),
             color: Color32::PLACEHOLDER,
@@ -381,8 +381,18 @@ pub fn icon_label(icon: &str, text: &str) -> egui::WidgetText {
     egui::WidgetText::from(job)
 }
 
-/// Creates a widget text with exact >= 8px spacing and custom text color
-pub fn icon_label_colored(icon: &str, text: &str, color: Color32) -> egui::WidgetText {
+/// Creates a widget text with exact >= 8px spacing between Nerd Font icon and text
+pub fn icon_label(icon: &str, text: &str) -> egui::WidgetText {
+    icon_label_spaced(icon, text, 8.0)
+}
+
+/// Creates a widget text with configurable spacing and custom text color
+pub fn icon_label_colored_spaced(
+    icon: &str,
+    text: &str,
+    color: Color32,
+    space_px: f32,
+) -> egui::WidgetText {
     let mut job = egui::text::LayoutJob::default();
     job.append(
         icon,
@@ -395,7 +405,7 @@ pub fn icon_label_colored(icon: &str, text: &str, color: Color32) -> egui::Widge
     );
     job.append(
         text,
-        8.0, // 8px guaranteed separation
+        space_px,
         egui::TextFormat {
             font_id: egui::FontId::proportional(14.0),
             color,
@@ -403,6 +413,11 @@ pub fn icon_label_colored(icon: &str, text: &str, color: Color32) -> egui::Widge
         },
     );
     egui::WidgetText::from(job)
+}
+
+/// Creates a widget text with exact >= 8px spacing and custom text color
+pub fn icon_label_colored(icon: &str, text: &str, color: Color32) -> egui::WidgetText {
+    icon_label_colored_spaced(icon, text, color, 8.0)
 }
 
 fn configure_fonts(ctx: &egui::Context) {
@@ -632,8 +647,16 @@ impl Em624App {
             _ => 0x0f, // 1000 Hz
         };
 
-        // Sync LED configuration (offsets 0x0006..0x0008)
-        self.profile.raw[0x0006] = self.led_mode as u8;
+        // In stock firmware:
+        // Byte 0x0006 is the Sensor Orientation / Inversion DSP register:
+        // 0x00 = Standard orientation (Normal X & Y)
+        // Values 0x01..0x03 rotate/invert sensor axes by 90/180/270 degrees (Up/Down <-> Left/Right).
+        // It must strictly be preserved as 0x00.
+        self.profile.raw[0x0006] = 0x00;
+
+        // Byte 0x0018 is the LED lighting effect mode in SPCP6651B MCU:
+        // (0=Breathing, 1=Colorful Light, 2=Rainbow, 3=Flow Light, 4=Waltz, 5=4-Seasons, 6=Off)
+        self.profile.raw[0x0018] = self.led_mode as u8;
         self.profile.raw[0x0007] = self.led_speed as u8;
         self.profile.raw[0x0008] = self.led_brightness as u8;
 
@@ -1153,7 +1176,7 @@ impl eframe::App for Em624App {
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::GameMode,
-                    icon_label(Icons::GAMEPAD, Strings::tab_game(self.config.language)),
+                    icon_label_spaced(Icons::GAMEPAD, Strings::tab_game(self.config.language), 12.0),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
@@ -1163,17 +1186,17 @@ impl eframe::App for Em624App {
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::LedLighting,
-                    icon_label(Icons::LIGHTBULB, Strings::tab_led(self.config.language)),
+                    icon_label_spaced(Icons::LIGHTBULB, Strings::tab_led(self.config.language), 5.0),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::MacroManager,
-                    icon_label(Icons::CODE, Strings::tab_macro(self.config.language)),
+                    icon_label_spaced(Icons::CODE, Strings::tab_macro(self.config.language), 12.0),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Advanced,
-                    icon_label(Icons::COGS, Strings::tab_advanced(self.config.language)),
+                    icon_label_spaced(Icons::COGS, Strings::tab_advanced(self.config.language), 12.0),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
@@ -1202,10 +1225,11 @@ impl eframe::App for Em624App {
                 };
                 if ui
                     .add(
-                        egui::Button::new(icon_label_colored(
+                        egui::Button::new(icon_label_colored_spaced(
                             Icons::UPLOAD,
                             Strings::btn_flash(self.config.language),
                             flash_btn_color,
+                            12.0, // +4px separation
                         ))
                         .fill(pal.accent),
                     )
