@@ -210,7 +210,7 @@ Whenever new features, UI controls, hardware registers, or driver modules are ad
 ### 1. Memory Budget (Strict <= 10MB Working Set Target)
 - **Continuous Working Set Trimming**: The application must remain under the **10 MB Working Set** RAM limit during steady-state execution.
 - **Heap Compaction**: Every major user interaction (tab switch, modal close, profile save/load, flash) and periodic background tick must invoke `crate::platform::trim_working_set()`, ensuring Windows `HeapCompact` + `K32EmptyWorkingSet` + `SetProcessWorkingSetSize` or Linux `malloc_trim(0)` actively purges unreferenced heap pages to OS standby.
-- **Texture Downsampling**: Never store or load raw full-resolution image buffers into GPU/CPU memory if rendered smaller. Images must be resized to exact target pixel dimensions prior to `ColorImage` creation, and intermediate CPU vectors must be immediately dropped.
+- **Texture Memory Hygiene**: Maintain crisp native resolution for UI textures (e.g. 600x600 mouse chassis) to prevent pixelation under HiDPI / display scaling (125%–200%), while immediately dropping CPU-side decode vectors (`drop(pixels)`, `drop(img)`) and invoking `trim_working_set()` post-upload so zero image decode memory lingers in the working set.
 - **Zero Memory Leaks**: Prevent unbounded collections in logs, event sniffers, or macro banks. Rotate or prune buffers at strict boundaries.
 
 ### 2. Layout Scalability & Universal Responsiveness

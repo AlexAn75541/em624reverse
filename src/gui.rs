@@ -856,15 +856,19 @@ impl Em624App {
         if self.mouse_texture.is_none() {
             let png_bytes = include_bytes!("../damouse.png");
             if let Ok(img) = image::load_from_memory(png_bytes) {
-                // Downsample to exact rendered dimensions (320x340) for aggressive RAM optimization
-                let resized = img.resize_exact(320, 340, image::imageops::FilterType::Triangle);
-                let rgba = resized.to_rgba8();
-                let size = [320, 340];
+                // Load native full-resolution texture (600x600) for pristine clarity across all display scales (100%-200%)
+                let rgba = img.to_rgba8();
+                let size = [rgba.width() as usize, rgba.height() as usize];
                 let pixels = rgba.into_raw();
                 let color_image = egui::ColorImage::from_rgba_unmultiplied(size, &pixels);
                 let texture =
                     ctx.load_texture("mouse_photo", color_image, egui::TextureOptions::LINEAR);
                 self.mouse_texture = Some(texture);
+
+                // Immediately drop CPU-side decode buffers and trim working set
+                drop(pixels);
+                drop(img);
+                trim_working_set();
             }
         }
     }
