@@ -225,8 +225,25 @@ impl Drop for Em624App {
 impl Default for Em624App {
     fn default() -> Self {
         let config = AppConfig::load();
-        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
-        let profile = MouseProfile::from_bytes(baseline).unwrap();
+
+        let mut initial_profile = None;
+        let mut initial_path = None;
+        if let Some(ref last_path_str) = config.last_profile {
+            let last_path = PathBuf::from(last_path_str);
+            if last_path.exists() {
+                if let Ok(mut p) = MouseProfile::load_file(&last_path) {
+                    p.refresh_stages();
+                    initial_profile = Some(p);
+                    initial_path = Some(last_path);
+                }
+            }
+        }
+
+        let profile = initial_profile.unwrap_or_else(|| {
+            let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+            MouseProfile::from_bytes(baseline).unwrap()
+        });
+        let file_path = initial_path;
 
         let logs_dir = config.logs_dir();
         let _ = fs::create_dir_all(&logs_dir);
@@ -279,7 +296,7 @@ impl Default for Em624App {
             status_message: "Ready. Connect your mouse or load a profile.".to_string(),
             device_connected: false,
             connected_info: "No device connected".to_string(),
-            file_path: None,
+            file_path,
             hovered_button: None,
             selected_slot: 1, // Default select Button 1 (Left Click)
             editing_slot: None,

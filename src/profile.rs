@@ -240,11 +240,14 @@ impl MouseProfile {
         Self::from_bytes(bytes)
     }
 
-    /// Refresh parsed DPI stages and RGB colors from raw bytes
+    /// Refresh parsed DPI stages, RGB colors, and button mapping tables from raw bytes
     pub fn refresh_stages(&mut self) {
         if self.raw.len() != PROFILE_SIZE {
             return;
         }
+        self.active_stages_mask = self.raw[4];
+        self.is_gaming_mode = self.raw[0x00a4] == 0x01;
+
         let levels = [
             self.raw[44] & 0x0f,
             (self.raw[44] >> 4) & 0x0f,
@@ -273,6 +276,24 @@ impl MouseProfile {
                 color,
                 enabled,
             });
+        }
+
+        self.office_buttons.clear();
+        for k in 0..12 {
+            let start = 0x00c0 + k * 4;
+            self.office_buttons.push(Self::decode_button(
+                k as u8 + 1,
+                &self.raw[start..start + 4],
+            ));
+        }
+
+        self.gaming_buttons.clear();
+        for k in 0..12 {
+            let start = 0x00f1 + k * 4;
+            self.gaming_buttons.push(Self::decode_button(
+                k as u8 + 1,
+                &self.raw[start..start + 4],
+            ));
         }
     }
 
@@ -505,6 +526,7 @@ impl MouseProfile {
         self.raw[0x03f9] = 0x04; // Clear 0x80 button lockout flag in MCU footer
 
         self.recalculate_checksums();
+        self.refresh_stages();
     }
 
     /// Keep profile's own native button bindings and mode untouched, ensure Stage 6 mask is safe (bit 5 masked to 0),
@@ -524,6 +546,9 @@ impl MouseProfile {
 
         // 4. Recalculate all 5 hardware checksums
         self.recalculate_checksums();
+
+        // 5. Refresh decoded stages and button bindings
+        self.refresh_stages();
     }
 
     /// Check if the button configuration matches verified working standard mouse clicks
@@ -568,6 +593,7 @@ impl MouseProfile {
 
         // Recalculate Sector 0 checksum (0x00A3) and all sector checksums
         self.recalculate_checksums();
+        self.refresh_stages();
     }
 
     /// Sanitize button table and mode flags with the verified standard working template.
@@ -657,5 +683,24 @@ mod tests {
             0,
             "Stage 6 bit should be masked to 0"
         );
+    }
+
+    #[test]
+    fn test_button_rebind_refresh() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let mut profile = MouseProfile::from_bytes(baseline).unwrap();
+
+        // Slot 1 (Left Key) in Gaming Mode is at 0x00F1..0x00F5
+        // Rebind to Keyboard Key 'A' (0x02, 0x00, 0x04, 0x00)
+        profile.raw[0x00f1..0x00f5].copy_from_slice(&[0x02, 0x00, 0x04, 0x00]);
+        profile.refresh_stages();
+
+        assert_eq!(profile.gaming_buttons[0].description, "A");
+
+        // Rebind Slot 2 (Forward Side 1) in Gaming Mode at 0x00F5..0x00F9 to Volume Up (0x03, 0x00, 0xe9, 0x00)
+        profile.raw[0x00f5..0x00f9].copy_from_slice(&[0x03, 0x00, 0xe9, 0x00]);
+        profile.apply_safe_profile(); // apply_safe_profile calls refresh_stages
+
+        assert_eq!(profile.gaming_buttons[1].description, "Media: Vol+");
     }
 }
