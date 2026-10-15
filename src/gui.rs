@@ -649,15 +649,14 @@ impl Em624App {
 
         // In stock firmware:
         // Byte 0x0006 is the Sensor Orientation / Inversion DSP register:
-        // 0x00 = Standard orientation (Normal X & Y)
-        // Values 0x01..0x03 rotate/invert sensor axes by 90/180/270 degrees (Up/Down <-> Left/Right).
-        // It must strictly be preserved as 0x00.
-        self.profile.raw[0x0006] = 0x00;
+        // 0x7F (bits 7..6 = 01) matches the physical 180° sensor mounting angle on the EM624 PCB (Standard normal motion).
+        // If written as 0x00 (bits 7..6 = 00 = 270°), the optical DSP rotates tracking by 90°, swapping Up/Down with Left/Right.
+        self.profile.raw[0x0006] = 0x7f;
+        self.profile.raw[0x0007] = 0x7f;
 
         // Byte 0x0018 is the LED lighting effect mode in SPCP6651B MCU:
         // (0=Breathing, 1=Colorful Light, 2=Rainbow, 3=Flow Light, 4=Waltz, 5=4-Seasons, 6=Off)
         self.profile.raw[0x0018] = self.led_mode as u8;
-        self.profile.raw[0x0007] = self.led_speed as u8;
         self.profile.raw[0x0008] = self.led_brightness as u8;
 
         // Sync Fire Key configuration (offsets 0x0010..0x0013)
@@ -823,6 +822,52 @@ impl Em624App {
         } else {
             Tab::OfficeMode
         };
+    }
+
+    /// On-demand emergency hardware sensor orientation and axis calibration repair.
+    /// Immediately restores verified hardware register values (0x0006 = 0x7F, 0x0007 = 0x7F),
+    /// recalculates all checksums, saves cached profile, and flashes mouse memory.
+    fn repair_sensor_orientation_now(&mut self) {
+        self.log_debug("[REPAIR] Starting on-demand sensor orientation calibration...");
+        self.profile.raw[0x0006] = 0x7f;
+        self.profile.raw[0x0007] = 0x7f;
+        self.profile.apply_safe_profile();
+        self.save_to_cached_profile();
+
+        let api = match HidApi::new() {
+            Ok(a) => a,
+            Err(e) => {
+                self.status_message = format!("HID API Error: {}", e);
+                return;
+            }
+        };
+
+        match Em624Device::open_auto(&api) {
+            Ok(dev) => {
+                self.status_message =
+                    "Calibrating sensor orientation and flashing to mouse...".to_string();
+                match dev.write_profile(&self.profile.raw) {
+                    Ok(()) => {
+                        self.device_connected = true;
+                        let _ = dev.apply_soft_reset();
+                        self.status_message =
+                            "Sensor orientation successfully restored to 180° PCB standard!"
+                                .to_string();
+                        self.log_debug(
+                            "[REPAIR] Success! Sensor orientation locked to 0x7F (normal axes).",
+                        );
+                    }
+                    Err(e) => {
+                        self.status_message = format!("Sensor calibration flash failed: {}", e);
+                        self.log_debug(&format!("[REPAIR_ERROR] {}", e));
+                    }
+                }
+            }
+            Err(e) => {
+                self.device_connected = false;
+                self.status_message = format!("Mouse not connected: {}", e);
+            }
+        }
     }
 
     fn load_profile_auto(&mut self, path: PathBuf) {
@@ -2709,6 +2754,34 @@ impl Em624App {
             {
                 self.config.show_mode_switcher = show_mode;
                 self.config.save();
+            }
+
+            ui.add_space(10.0);
+            ui.separator();
+            ui.add_space(6.0);
+
+            // On-demand Emergency Hardware Orientation & Axis Calibration Button
+            let repair_btn_text = if lang == Language::Vietnamese {
+                "Khôi phục hướng di chuột cảm biến (Sửa lỗi đảo trục / Lộn hướng)"
+            } else {
+                "Calibrate & Fix Sensor Tracking Orientation (Emergency Axis Repair)"
+            };
+            if ui
+                .add_sized(
+                    [360.0, 32.0],
+                    egui::Button::new(icon_label_colored(
+                        Icons::REFRESH,
+                        repair_btn_text,
+                        pal.accent,
+                    ))
+                    .stroke(Stroke::new(1.0_f32, pal.card_border)),
+                )
+                .on_hover_text(
+                    "Immediately restores the verified hardware sensor orientation registers (0x0006 = 0x7F, 0x0007 = 0x7F) and flashes to mouse memory to eliminate inverted/swapped X/Y axes.",
+                )
+                .clicked()
+            {
+                self.repair_sensor_orientation_now();
             }
         });
 

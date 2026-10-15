@@ -518,7 +518,8 @@ impl MouseProfile {
         self.raw[0x00f1..0x0121].copy_from_slice(&STANDARD_BUTTON_TABLE);
 
         // Hardware safety registers
-        self.raw[0x0006] = 0x00; // Sensor orientation: standard horizontal/vertical (prevents axis swap)
+        self.raw[0x0006] = 0x7f; // Sensor orientation: 0x7F (180 deg physical PCB sensor mounting angle, bits 7..6 = 01)
+        self.raw[0x0007] = 0x7f; // Hardware default register byte 7
         self.raw[4] = 0xdf; // 5 active DPI stages, mask stage 6 MCU lockup
         self.clamp_dpi_nibbles(); // Clamp DPI steps <= 12 to prevent sensor lookup overflow
         self.raw[0x00a4] = 0x01; // Force Gaming Mode (active button matrix)
@@ -531,15 +532,17 @@ impl MouseProfile {
     }
 
     /// Keep profile's own native button bindings and mode untouched, ensure Stage 6 mask is safe (bit 5 masked to 0),
-    /// lock optical sensor orientation to standard (0x0006 = 0),
+    /// restore verified hardware optical sensor orientation (0x0006 = 0x7F, 0x0007 = 0x7F),
     /// clamp any out-of-bounds DPI nibbles, clear hardware lockout flag (bit 7 of 0x03F9), and recalculate all 5 checksums.
     pub fn apply_safe_profile(&mut self) {
         if self.raw.len() != PROFILE_SIZE {
             return;
         }
-        // 0. Enforce standard optical sensor orientation (byte 0x0006 must be 0x00).
-        // Non-zero values swap X and Y motion axes in the SPCP6662 DSP (Up/Down <-> Left/Right).
-        self.raw[0x0006] = 0x00;
+        // 0. Enforce verified hardware optical sensor orientation:
+        // Byte 0x0006 must be 0x7F (bits 7..6 = 01, matching the physical 180° PCB sensor mounting angle).
+        // If set to 0x00 (bits 7..6 = 00 = 270°), the DSP rotates motion 90° out-of-phase, swapping Up/Down with Left/Right.
+        self.raw[0x0006] = 0x7f;
+        self.raw[0x0007] = 0x7f;
 
         // 1. Mask out stage 6 trap: byte 4 &= 0xDF
         self.raw[4] &= 0xdf;
@@ -593,8 +596,9 @@ impl MouseProfile {
         // Keep bit 5 masked to 0 (max 5 stages) to prevent MCU firmware fault on stage 6
         self.raw[4] = user_mask & 0xdf;
 
-        // Enforce standard optical sensor orientation (byte 0x0006 = 0)
-        self.raw[0x0006] = 0x00;
+        // Restore verified hardware sensor orientation (byte 0x0006 = 0x7F, byte 0x0007 = 0x7F)
+        self.raw[0x0006] = 0x7f;
+        self.raw[0x0007] = 0x7f;
 
         // Inject user DPI stages and colors
         self.raw[0x2c..0x2f].copy_from_slice(&dpi_nibbles);
@@ -718,23 +722,26 @@ mod tests {
         let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
         let mut profile = MouseProfile::from_bytes(baseline).unwrap();
 
-        // Simulate corrupted/mutated orientation register (e.g., from old LED mode bug)
-        profile.raw[0x0006] = 0x02; // Rotated orientation
-        assert_eq!(profile.raw[0x0006], 0x02);
+        // Baseline profile has verified hardware value 0x7F (180 deg physical mounting)
+        assert_eq!(profile.raw[0x0006], 0x7f);
 
-        // apply_safe_profile must strictly restore standard orientation (0x00)
+        // Simulate corrupted/mutated orientation register (e.g., 0x00 or other rotated value)
+        profile.raw[0x0006] = 0x00; // Inverted orientation
+        assert_eq!(profile.raw[0x0006], 0x00);
+
+        // apply_safe_profile must strictly restore standard hardware orientation (0x7F)
         profile.apply_safe_profile();
         assert_eq!(
-            profile.raw[0x0006], 0x00,
-            "Sensor orientation must be restored to 0x00 (standard)"
+            profile.raw[0x0006], 0x7f,
+            "Sensor orientation must be restored to 0x7F (hardware normal)"
         );
 
-        // apply_standard_buttons must also enforce 0x00
+        // apply_standard_buttons must also enforce 0x7F
         profile.raw[0x0006] = 0x01;
         profile.apply_standard_buttons();
         assert_eq!(
-            profile.raw[0x0006], 0x00,
-            "Sensor orientation must be 0x00 in standard profile"
+            profile.raw[0x0006], 0x7f,
+            "Sensor orientation must be 0x7F in standard profile"
         );
     }
 }

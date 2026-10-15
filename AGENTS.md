@@ -95,7 +95,12 @@ checksum = (sum(sector_bytes) ^ 0x5A) & 0xFF
 |---|---|---|
 | `0x0000..0x0003` | 4 bytes | Magic Hardware Signature: `1B CF 08 B8` (Little-endian VID `0x1BCF` + PID `0x08B8`) |
 | `0x0004` | 1 byte | Active DPI Stages Bitmask (`0xDF` = 5 stages, `0xFF` = 6 stages) |
-| `0x0006` | 1 byte | **Optical Sensor Orientation / DSP Axis Matrix** (`0x00` = Standard horizontal/vertical normal orientation; non-zero rotates/inverts X/Y motion by 90/180/270 degrees in SPCP6662 DSP) |
+- **Optical Sensor Orientation / DSP Axis Matrix**: Byte `0x0006` is a packed bitfield where bits 7..6 configure the SPCP6662 optical DSP coordinate transformation:
+  - `00` (`0x00`): 270° rotation.
+  - `01` (`0x40` or default `0x7F`): **180° rotation** (The exact physical PCB sensor mounting orientation for the E-DRA EM624 chassis).
+  - `10` (`0x80`): 90° rotation.
+  - `11` (`0xC0`): 0° rotation.
+  *Note: If byte `0x0006` is set to `0x00`, the optical DSP rotates motion 90° out-of-phase, inverting the physical tracking and swapping Up/Down with Left/Right. The driver strictly enforces `0x7F` (`180°`) across all profiles and flash operations.*
 | `0x0007` | 1 byte | LED Breathing Speed (`1`..`5`) |
 | `0x0008` | 1 byte | LED Brightness (`0`=Full, `1`=Half) |
 | `0x0018` | 1 byte | LED Lighting Mode (`0`=Breathing, `1`=Colorful, `2`=Rainbow, `3`=Flow, `4`=Waltz, `5`=4-Seasons, `6`=Off) |

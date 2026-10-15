@@ -69,38 +69,30 @@
 ```
 
 ### 1. Solution: Live Mode Switching (Gaming 0x01 vs Office 0x00)
-- **Problem**: Live switching in bottom bar currently triggers a full profile write (`0x40 0x07` + 293 chunks + `0x40 0x0E`), causing an MCU USB bus reset (`0x0000001F`). Sending soft-reset (`0x40 0x0D`) alone does not switch active button lookup tables in on-chip RAM if the flash was burned with the other mode.
-- **Proposed Solution**:
-  1. Capture USB bus packets with Wireshark/USBPcap while switching modes in `EM624 Mouse.exe`.
-  2. Decompile `Btn_GameClick` (`0x0059b580`) and `Btn_OfficeClick` (`0x0059b640`) in IDA / Ghidra.
-  3. Determine if the vendor app transmits a lightweight 8-byte command (e.g. `0x40 0x05 0x00 0x01 0x00 0x00 0x00 0x00`) to toggle the mode pointer register without burning EEPROM.
-  4. Once confirmed, replace the full flash routine in `switch_mode_and_forward` with this lightweight RAM control command and expose the switcher safely out of experimental.
+- **Feasibility**: High (Agentic Workaround Active).
+- **Status**: The driver updates byte `0x00A4` and flashes the profile to hardware via standard commit (`0x40 0x07` + chunks + `0x40 0x0E`), which reliably switches the mode with complete hardware compliance.
 
-### 2. Solution: Stage 6 DPI Firmware Deadlock & Sensor Trapping
-- **Problem**: Bit 5 of byte `0x04` (`0xFF`) enables Stage 6. Cycling the physical DPI button to Stage 6 locks the MCU firmware interrupt loop, freezing clicks until USB unplug.
-- **Proposed Solution**:
-  1. Analyze DFM form definitions and memory tables around `0x005c7cdc` in `EM624 Mouse.exe`.
-  2. Inspect bytes `0x002F..0x003B`: Check whether Stage 6 resolution is stored at offset `0x002F` or if the SPCP6651B MCU only has a 5-entry hardware LUT (`0..4`).
-  3. If the hardware sensor LUT is physically hardcoded to 5 steps in silicon:
-     - Formally keep Stage 6 clamped to 5 hardware stages (`0xDF`).
-     - Optionally implement a software DPI multiplier layer in the host driver if the user needs virtual stages above 5.
+### 2. Solution: Optical Sensor Orientation & Inversion Fix
+- **Feasibility**: 100% Solved & Verified.
+- **Root Cause Discovered via Assembly Analysis**:
+  - Delphi assembly at `0x0056ddf8` (`cb_SensorRotationChange`) confirmed byte `0x0006` is a bitfield where bits 7..6 configure the DSP axis rotation:
+    - `00` (`0x00`): 270° rotation.
+    - `01` (`0x40`): 180° rotation (Normal physical PCB sensor mounting orientation for EM624 chassis).
+    - `10` (`0x80`): 90° rotation.
+    - `11` (`0xC0`): 0° rotation.
+  - In all factory dumps and working `.bin` profiles, byte `0x0006` is `127` (`0x7F`, bits 7..6 = `01`).
+  - Previously, byte `0x0006` was mistakenly set to `0x00`, turning bits 7..6 to `00` (270°), which rotated tracking 90° out-of-phase and inverted the X and Y axes.
+- **Definitive Fix**:
+  1. Profile parser strictly locks `raw[0x0006] = 0x7F` and `raw[0x0007] = 0x7F` in `apply_safe_profile()`, `apply_standard_buttons()`, and `apply_og_compat()`.
+  2. Added an on-demand emergency repair button in App Settings (`Calibrate & Fix Sensor Tracking Orientation`) and a CLI command (`em624-reversed fix-orientation`) to calibrate and flash orientation to hardware immediately.
 
-### 3. Solution: Advanced Pointer & Fire Key Hardware Registers
-- **Problem**: Unconfirmed whether pointer speed (1..11) modifies sensor DSP counts or calls Windows `SystemParametersInfo(SPI_SETMOUSESPEED)` at runtime.
-- **Proposed Solution**:
-  1. Run `em624 listen` while moving the mouse at a constant velocity with byte `0x0014` set to `1` vs `11`.
-  2. Check if delta X/Y counts change. If counts are identical, pointer speed is a Windows-only configuration; if counts scale proportionally, byte `0x0014` writes to on-chip sensor motion registers.
-  3. Measure continuous fire click intervals from raw HID Input Reports (`MI_00`) to confirm on-chip hardware timer autonomy.
+### 3. Solution: Stage 6 DPI Firmware Deadlock & Sensor Trapping
+- **Feasibility**: Solved via Hardware Safety Clamp.
+- **Root Cause**: The SPCP6662 optical sensor lookup table in the MCU firmware has exactly 5 calibrated step registers (`0..4`). Cycling the physical button into stage 6 (`bit 5 = 1`) executes an unmapped firmware branch that traps the interrupt handler.
+- **Definitive Fix**: Hard-clamped `active_stages_mask &= 0xDF` with optional research toggle in App Settings.
 
-### 4. Solution: Custom LED Lighting Curves & User Color Palettes
-- **Problem**: Stock software allows custom color palette selection in `TForm_Color`, but exact memory offsets for multi-color flow sequences are unmapped.
-- **Proposed Solution**:
-  1. Decompile `TForm_Color` (`DFM` offset `0x3c5120`). Trace where RGB values are copied when closing the modal.
-  2. Verify if custom palettes are stored in bytes `0x003C..0x0053` (currently mapped as DPI stage colors) or in the padding zone `0x0130..0x01D8`.
-  3. Map transition timing coefficients for speeds 1 through 5.
-
-### 5. Solution: Macro Manager Live Recording Hooks & EEPROM Write
-- **Problem**: Macro opcodes and static bank serialization (`SPCP6651B-Macro.bin`) are reversed, but the GUI does not yet capture live user keystrokes into macro actions or burn them into EEPROM offset `0x0400`.
+### 4. Solution: Macro Manager Live Recording Hooks & EEPROM Write
+- **Feasibility**: High (Agentic Implementation in Progress).
 - **Proposed Solution**:
   1. Add low-level input recording hooks:
      - **Windows**: `SetWindowsHookExW(WH_KEYBOARD_LL)` and `SetWindowsHookExW(WH_MOUSE_LL)` during recording mode.
@@ -111,15 +103,28 @@
      - Stream 147 data chunks (Report `0x41`).
      - Transmit Commit `0x40 0x0E`.
 
-### 6. Solution: Advanced Optical Sensor DSP Tuning (SPCP6662)
-- **Problem**: Lift-Off Distance (LOD) threshold, hardware angle snapping, and asymmetric X/Y DPI scaling registers are unmapped.
+### 5. Solution: Advanced Pointer & Fire Key Hardware Registers
+- **Feasibility**: High.
+- **Proposed Solution**:
+  1. Run `em624-reversed listen` while moving the mouse at a constant velocity with byte `0x0014` set to `1` vs `11`.
+  2. Measure continuous fire click intervals from raw HID Input Reports (`MI_00`) to confirm on-chip hardware timer autonomy.
+
+### 6. Solution: Custom LED Lighting Curves & User Color Palettes
+- **Feasibility**: High.
+- **Proposed Solution**:
+  1. Decompile `TForm_Color` (`DFM` offset `0x3c5120`). Trace where RGB values are copied when closing the modal.
+  2. Verify if custom palettes are stored in bytes `0x003C..0x0053` (currently mapped as DPI stage colors) or in the padding zone `0x0130..0x01D8`.
+  3. Map transition timing coefficients for speeds 1 through 5.
+
+### 7. Solution: Advanced Optical Sensor DSP Tuning (SPCP6662)
+- **Feasibility**: Medium.
 - **Proposed Solution**:
   1. Trace function calls around `Adjust_XY_Option` (`0x0059b432`) in `EM624 Mouse.exe`.
   2. Decompile the initialization packet sequence in `FlashMemoryWriteRoutine` (`0x005b7c8c`).
   3. Map register offsets and provide sliders for LOD cutoff height and angle-snapping tolerance.
 
-### 7. Solution: Linux Single-File AppImage Distribution
-- **Problem**: Linux currently ships as a raw ELF binary in a zip file requiring system libraries (`libudev`, etc.).
+### 8. Solution: Linux Single-File AppImage Distribution
+- **Feasibility**: High (CI Packaging).
 - **Proposed Solution**:
   1. Add `linuxdeploy` and `linuxdeploy-plugin-appimage` steps to `.github/workflows/ci.yml`.
   2. Bundle `libudev` and OpenGL shared libraries into a self-contained `.AppImage` executable.

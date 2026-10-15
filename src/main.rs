@@ -101,6 +101,14 @@ enum Commands {
         #[arg(short, long, default_value = "standard")]
         buttons: String,
     },
+    /// Emergency on-demand hardware sensor orientation and axis calibration repair
+    #[command(alias = "fix-axes")]
+    FixOrientation {
+        #[arg(long)]
+        vid: Option<u16>,
+        #[arg(long)]
+        pid: Option<u16>,
+    },
 }
 
 fn main() -> Result<()> {
@@ -463,6 +471,41 @@ fn main() -> Result<()> {
             println!(
                 "\nConversion finished: {} scanned, {} converted to .em624.",
                 scanned_count, converted_count
+            );
+        }
+        Some(Commands::FixOrientation { vid, pid }) => {
+            println!("========================================================================");
+            println!("  E-DRA EM624 EMERGENCY OPTICAL SENSOR ORIENTATION & AXIS REPAIR");
+            println!("  Restoring verified 180° PCB mounting registers (0x0006 = 0x7F, 0x0007 = 0x7F)...");
+            println!("========================================================================\n");
+
+            let api = HidApi::new()?;
+            let dev = match (vid, pid) {
+                (Some(v), Some(p)) => Em624Device::open_vid_pid(&api, v, p)?,
+                _ => Em624Device::open_auto(&api)?,
+            };
+
+            println!(
+                "Connected to EM624 Mouse (VID: 0x{:04x}, PID: 0x{:04x})",
+                dev.vid, dev.pid
+            );
+            println!("Reading active EEPROM profile from mouse...");
+            let data = dev.read_profile()?;
+            let mut profile = MouseProfile::from_bytes(&data)?;
+
+            println!("Active Register 0x0006 was: 0x{:02X}", profile.raw[0x0006]);
+            profile.raw[0x0006] = 0x7f;
+            profile.raw[0x0007] = 0x7f;
+            profile.apply_safe_profile();
+
+            println!("Flashing calibrated orientation registers to mouse memory (293 chunks)...");
+            dev.write_profile(&profile.raw)?;
+            let _ = dev.apply_soft_reset();
+            println!(
+                "\nSUCCESS: Sensor orientation successfully restored to 180° PCB normal (0x7F)!"
+            );
+            println!(
+                "X and Y axes are now tracked normally (Up=Up, Down=Down, Left=Left, Right=Right)."
             );
         }
     }
