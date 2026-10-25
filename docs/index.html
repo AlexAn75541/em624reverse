@@ -173,35 +173,35 @@
         
         <!-- Left: Interactive Chassis Image with Pin Badges -->
         <div class="lg:col-span-6 flex justify-center relative">
-          <div class="relative w-[340px] h-[340px] sm:w-[420px] sm:h-[420px] bg-obsidian-900 rounded-2xl border border-obsidian-800 p-6 flex items-center justify-center shadow-2xl">
-            <img src="assets/damouse.png" alt="E-DRA EM624 Mouse Chassis" class="max-w-full max-h-full object-contain filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)]">
+          <div class="relative w-full max-w-[340px] sm:max-w-[420px] aspect-square bg-obsidian-900 rounded-2xl border border-obsidian-800 p-6 flex items-center justify-center shadow-2xl mx-auto">
+            <img src="assets/damouse.png" alt="E-DRA EM624 Mouse Chassis" class="w-full h-full object-contain filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)]">
 
             <!-- Interactive Pin 1: Left Click -->
-            <button onclick="selectButton(1)" class="badge-btn absolute top-14 left-24 sm:left-32 w-8 h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 1: Left Click">
+            <button onclick="selectButton(1)" class="badge-btn absolute top-[16%] left-[28%] w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-xs sm:text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 1: Left Click">
               1
             </button>
             <!-- Interactive Pin 2: Right Click -->
-            <button onclick="selectButton(2)" class="badge-btn absolute top-14 right-24 sm:right-32 w-8 h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 2: Right Click">
+            <button onclick="selectButton(2)" class="badge-btn absolute top-[16%] right-[28%] w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-xs sm:text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 2: Right Click">
               2
             </button>
             <!-- Interactive Pin 3: Scroll Wheel / Middle -->
-            <button onclick="selectButton(3)" class="badge-btn absolute top-24 left-[155px] sm:left-[195px] w-8 h-8 rounded-full bg-cyber-sky text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 3: Middle Click">
+            <button onclick="selectButton(3)" class="badge-btn absolute top-[25%] left-1/2 -translate-x-1/2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-cyber-sky text-obsidian-950 font-bold font-mono text-xs sm:text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 3: Middle Click">
               3
             </button>
             <!-- Interactive Pin 7: Rapid Fire (Top Wing) -->
-            <button onclick="selectButton(7)" class="badge-btn absolute top-28 left-14 sm:left-20 w-8 h-8 rounded-full bg-cyber-amber text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 7: Rapid Fire">
+            <button onclick="selectButton(7)" class="badge-btn absolute top-[29%] left-[16%] w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-cyber-amber text-obsidian-950 font-bold font-mono text-xs sm:text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 7: Rapid Fire">
               7
             </button>
             <!-- Interactive Pin 6: DPI Switch -->
-            <button onclick="selectButton(6)" class="badge-btn absolute top-40 left-[155px] sm:left-[195px] w-8 h-8 rounded-full bg-purple-400 text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 6: DPI Switch">
+            <button onclick="selectButton(6)" class="badge-btn absolute top-[41%] left-1/2 -translate-x-1/2 w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-purple-400 text-obsidian-950 font-bold font-mono text-xs sm:text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 6: DPI Switch">
               6
             </button>
             <!-- Interactive Pin 4: Side Forward 1 -->
-            <button onclick="selectButton(4)" class="badge-btn absolute top-48 left-12 sm:left-16 w-8 h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 4: Forward Side 1">
+            <button onclick="selectButton(4)" class="badge-btn absolute top-[51%] left-[13%] w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-xs sm:text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 4: Forward Side 1">
               4
             </button>
             <!-- Interactive Pin 5: Side Backward 2 -->
-            <button onclick="selectButton(5)" class="badge-btn absolute top-60 left-14 sm:left-18 w-8 h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 5: Backward Side 2">
+            <button onclick="selectButton(5)" class="badge-btn absolute top-[63%] left-[15%] w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-xs sm:text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 5: Backward Side 2">
               5
             </button>
           </div>

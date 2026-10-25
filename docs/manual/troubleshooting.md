@@ -4,10 +4,8 @@ This guide provides definitive troubleshooting procedures and technical root cau
 
 ---
 
-<div class="callout-warning">
-<strong>Active Development Notice</strong><br>
-This driver and configuration software is an open-source reverse-engineering effort developed via static binary disassembly and dynamic USB packet analysis. While the driver includes comprehensive checksum verification and hardware clamping safeguards, users should familiarize themselves with the recovery procedures below.
-</div>
+> ⚠️ **Active Development Notice**  
+> This driver and configuration software is an open-source reverse-engineering effort developed via static binary disassembly and dynamic USB packet analysis. While the driver includes comprehensive checksum verification and hardware clamping safeguards, users should familiarize themselves with the recovery procedures below.
 
 ---
 
