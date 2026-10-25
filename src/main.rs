@@ -1,6 +1,7 @@
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
 mod device;
+pub mod font_service;
 mod gui;
 pub mod i18n;
 pub mod macro_engine;
@@ -136,9 +137,16 @@ fn main() -> Result<()> {
                     })
                 });
 
+            let app_cfg = gui::AppConfig::load();
+            let min_size = if app_cfg.free_window_resize {
+                [280.0, 200.0]
+            } else {
+                [700.0, 500.0]
+            };
+
             let mut viewport = eframe::egui::ViewportBuilder::default()
                 .with_inner_size([880.0, 640.0])
-                .with_min_inner_size([700.0, 500.0])
+                .with_min_inner_size(min_size)
                 .with_title("E-DRA EM624 Gaming Mouse Configurator");
 
             if let Some(ic) = icon_data {

@@ -144,6 +144,10 @@ Checksum = (Sum_of_bytes ^ 0x5A) & 0xFF
    - `--buttons standard` (default): Applies factory standard mouse actions (Left, Right, Middle, Forward Side 1, Back Side 2, CPI Loop) to both Office and Gaming modes.
    - `--buttons keep`: Preserves the profile's own authentic keybindings (e.g. Spacebar and Q for Valorant) while safely masking Stage 6 (`active_stages_mask &= 0xDF`) and verifying all four checksums.
 
+### Real-Time GUI Keybinding & Hardware Flash Pipeline
+1. **Mode Synchronized Rebinding**: Sunplus SPCP6651B MCU maintains dual button tables (`0x00C0` Office and `0x00F1` Gaming), steered by Mode Byte `0x00A4` (`0x00` Office, `0x01` Gaming). To ensure physical hardware buttons never become unresponsive if an internal mode toggle occurs (e.g. via Fn/Mode switch keys), custom keybindings applied in GUI are synchronized to both tables and `0x00A4` is explicitly set to active mode.
+2. **Opcode 0x0D Soft Apply**: Before issuing Commit Opcode `0x40 0x0E`, the driver transmits Opcode `0x40 0x0D` (`apply_soft_reset`) matching Delphi `FlashMemoryWriteRoutine` at `0x005b7c8c`. This forces the MCU to reload incoming button tables into live registers prior to the EEPROM burn and bus reset.
+
 ---
 
 ## 6. Mouse Recovery Procedure (Dead Buttons / Unresponsive Input)

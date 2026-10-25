@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>E-DRA EM624 — Open Source Mouse Driver & Reverse Engineering Project</title>
+  <meta name="description" content="A 100% native Rust open-source driver and hardware configurator for the E-DRA EM624 gaming mouse. Sub-10MB RAM, Linux & Windows native, verified checksums, and cloud typography.">
+  <link rel="icon" href="assets/damouse.png" type="image/png">
+
+  <!-- Tailwind CSS & Lucide Icons -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            obsidian: {
+              950: '#070a0f',
+              900: '#0b0f17',
+              850: '#101725',
+              800: '#162032',
+              700: '#1e2d45',
+              600: '#334155',
+            },
+            cyber: {
+              emerald: '#10b981',
+              green: '#2ed573',
+              amber: '#f59e0b',
+              sky: '#38bdf8',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'Courier New', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom utility styles */
+    .glow-emerald {
+      box-shadow: 0 0 25px -5px rgba(16, 185, 129, 0.25);
+    }
+    .glow-amber {
+      box-shadow: 0 0 25px -5px rgba(245, 158, 11, 0.2);
+    }
+    .badge-btn:hover {
+      transform: translateY(-1px);
+    }
+  </style>
+</head>
+<body class="bg-obsidian-950 text-slate-200 font-sans antialiased selection:bg-cyber-emerald selection:text-black">
+
+  <!-- ==================== HEADER / NAV ==================== -->
+  <header class="sticky top-0 z-50 backdrop-blur-md bg-obsidian-950/85 border-b border-obsidian-800">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <a href="#" class="flex items-center gap-3 group focus:outline-none focus:ring-2 focus:ring-cyber-emerald rounded-lg p-1">
+        <img src="assets/damouse.png" alt="E-DRA EM624 Mouse Logo" class="w-8 h-8 rounded-md ring-1 ring-cyber-emerald/40 group-hover:scale-105 transition-transform duration-200">
+        <div class="flex flex-col">
+          <span class="font-bold text-white tracking-tight text-base sm:text-lg flex items-center gap-2">
+            E-DRA EM624
+            <span class="text-[10px] uppercase font-mono px-1.5 py-0.5 rounded bg-cyber-emerald/10 text-cyber-emerald border border-cyber-emerald/30">Reversed</span>
+          </span>
+          <span class="text-[11px] text-slate-400 font-mono -mt-0.5">Sunplus SPCP6662 &bull; VID 0x1BCF PID 0x08B8</span>
+        </div>
+      </a>
+
+      <!-- Desktop Nav -->
+      <nav class="hidden md:flex items-center gap-6 text-sm font-medium">
+        <a href="#visualizer" class="text-slate-300 hover:text-white transition-colors">Mouse Explorer</a>
+        <a href="#comparison" class="text-slate-300 hover:text-white transition-colors">Stock vs Reversed</a>
+        <a href="#architecture" class="text-slate-300 hover:text-white transition-colors">Protocol Specs</a>
+        <a href="#quickstart" class="text-slate-300 hover:text-white transition-colors">Quick Start</a>
+        <a href="manual/#/troubleshooting" class="text-cyber-amber hover:text-amber-400 transition-colors flex items-center gap-1">
+          <i data-lucide="alert-triangle" class="w-4 h-4"></i>
+          Troubleshooting
+        </a>
+      </nav>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-3">
+        <a href="manual/#/" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-obsidian-800 hover:bg-obsidian-700 text-slate-100 text-sm font-semibold border border-obsidian-700 hover:border-slate-500 transition-all shadow-sm">
+          <i data-lucide="book-open" class="w-4 h-4 text-cyber-emerald"></i>
+          <span>Full Docs</span>
+        </a>
+        <a href="https://github.com/AlexAn75541/em624reverse" target="_blank" rel="noopener noreferrer" class="hidden sm:inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-cyber-emerald hover:bg-emerald-400 text-obsidian-950 text-sm font-bold transition-all shadow-sm glow-emerald" aria-label="GitHub Repository">
+          <i data-lucide="github" class="w-4 h-4"></i>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- ==================== HERO SECTION ==================== -->
+  <section class="relative pt-12 pb-20 overflow-hidden border-b border-obsidian-850">
+    <div class="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(16,185,129,0.15),rgba(255,255,255,0))] pointer-events-none"></div>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+      <div class="text-center max-w-3xl mx-auto">
+        <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-obsidian-850 border border-obsidian-700 text-xs font-mono text-cyber-emerald mb-6">
+          <span class="flex h-2 w-2 rounded-full bg-cyber-emerald animate-pulse"></span>
+          100% Native Rust &bull; Zero Electron Overhead &bull; Verified Checksums
+        </div>
+
+        <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold text-white tracking-tight leading-tight">
+          Next-Gen Open Driver for <br class="hidden sm:inline"/>
+          <span class="text-transparent bg-clip-text bg-gradient-to-r from-cyber-emerald via-emerald-300 to-cyber-sky">E-DRA EM624 Gaming Mouse</span>
+        </h1>
+
+        <p class="mt-6 text-base sm:text-lg text-slate-300 leading-relaxed">
+          Replaces the buggy 2018 Delphi vendor utility with a modern, high-performance driver. Featuring verified 5-sector checksum protection, emergency optical sensor calibration, dynamic cloud typography, sub-10MB RAM usage, and native Linux and Windows support.
+        </p>
+
+        <!-- CTA Group -->
+        <div class="mt-8 flex flex-wrap items-center justify-center gap-4">
+          <a href="manual/#/" class="px-6 py-3 rounded-lg bg-cyber-emerald hover:bg-emerald-400 text-obsidian-950 font-bold text-base transition-all shadow-lg glow-emerald flex items-center gap-2">
+            <i data-lucide="book" class="w-5 h-5"></i>
+            <span>Browse Documentation</span>
+          </a>
+          <a href="https://github.com/AlexAn75541/em624reverse/releases" target="_blank" rel="noopener noreferrer" class="px-6 py-3 rounded-lg bg-obsidian-850 hover:bg-obsidian-800 text-slate-200 hover:text-white font-semibold text-base border border-obsidian-700 hover:border-slate-500 transition-all flex items-center gap-2">
+            <i data-lucide="download" class="w-5 h-5 text-cyber-sky"></i>
+            <span>Download Release</span>
+          </a>
+          <a href="manual/#/troubleshooting" class="px-5 py-3 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-cyber-amber font-semibold text-base border border-amber-500/30 transition-all flex items-center gap-2">
+            <i data-lucide="shield-alert" class="w-5 h-5"></i>
+            <span>Recovery Guide</span>
+          </a>
+        </div>
+
+        <!-- Metric Badges Ribbon -->
+        <div class="mt-12 grid grid-cols-2 sm:grid-cols-4 gap-3 text-left">
+          <div class="bg-obsidian-900/90 border border-obsidian-800 rounded-lg p-3">
+            <div class="text-xs text-slate-400 font-mono">Working Set Memory</div>
+            <div class="text-xl font-bold text-cyber-emerald mt-0.5">&le; 10 MB</div>
+            <div class="text-[11px] text-slate-500">Continuous Heap Trim</div>
+          </div>
+          <div class="bg-obsidian-900/90 border border-obsidian-800 rounded-lg p-3">
+            <div class="text-xs text-slate-400 font-mono">Polling Rates</div>
+            <div class="text-xl font-bold text-white mt-0.5">1000 Hz</div>
+            <div class="text-[11px] text-slate-500">125 / 250 / 500 / 1000</div>
+          </div>
+          <div class="bg-obsidian-900/90 border border-obsidian-800 rounded-lg p-3">
+            <div class="text-xs text-slate-400 font-mono">DPI Calibration</div>
+            <div class="text-xl font-bold text-cyber-sky mt-0.5">14 Steps</div>
+            <div class="text-[11px] text-slate-500">200 to 10,000 DPI</div>
+          </div>
+          <div class="bg-obsidian-900/90 border border-obsidian-800 rounded-lg p-3">
+            <div class="text-xs text-slate-400 font-mono">Platform Support</div>
+            <div class="text-xl font-bold text-cyber-amber mt-0.5">Win + Linux</div>
+            <div class="text-[11px] text-slate-500">100% Native Binaries</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== INTERACTIVE MOUSE EXPLORER ==================== -->
+  <section id="visualizer" class="py-16 bg-obsidian-900/40 border-b border-obsidian-850">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center max-w-2xl mx-auto mb-10">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-cyber-emerald">Hardware Topography</h2>
+        <h3 class="text-3xl font-bold text-white mt-1">Interactive Mouse Chassis & Button Map</h3>
+        <p class="text-sm text-slate-400 mt-2">Hover or tap buttons to inspect their hardware slot, microswitch type, default function, and remapping possibilities.</p>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+        
+        <!-- Left: Interactive Chassis Image with Pin Badges -->
+        <div class="lg:col-span-6 flex justify-center relative">
+          <div class="relative w-[340px] h-[340px] sm:w-[420px] sm:h-[420px] bg-obsidian-900 rounded-2xl border border-obsidian-800 p-6 flex items-center justify-center shadow-2xl">
+            <img src="assets/damouse.png" alt="E-DRA EM624 Mouse Chassis" class="max-w-full max-h-full object-contain filter drop-shadow-[0_10px_20px_rgba(0,0,0,0.8)]">
+
+            <!-- Interactive Pin 1: Left Click -->
+            <button onclick="selectButton(1)" class="badge-btn absolute top-14 left-24 sm:left-32 w-8 h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 1: Left Click">
+              1
+            </button>
+            <!-- Interactive Pin 2: Right Click -->
+            <button onclick="selectButton(2)" class="badge-btn absolute top-14 right-24 sm:right-32 w-8 h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 2: Right Click">
+              2
+            </button>
+            <!-- Interactive Pin 3: Scroll Wheel / Middle -->
+            <button onclick="selectButton(3)" class="badge-btn absolute top-24 left-[155px] sm:left-[195px] w-8 h-8 rounded-full bg-cyber-sky text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 3: Middle Click">
+              3
+            </button>
+            <!-- Interactive Pin 7: Rapid Fire (Top Wing) -->
+            <button onclick="selectButton(7)" class="badge-btn absolute top-28 left-14 sm:left-20 w-8 h-8 rounded-full bg-cyber-amber text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 7: Rapid Fire">
+              7
+            </button>
+            <!-- Interactive Pin 6: DPI Switch -->
+            <button onclick="selectButton(6)" class="badge-btn absolute top-40 left-[155px] sm:left-[195px] w-8 h-8 rounded-full bg-purple-400 text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 6: DPI Switch">
+              6
+            </button>
+            <!-- Interactive Pin 4: Side Forward 1 -->
+            <button onclick="selectButton(4)" class="badge-btn absolute top-48 left-12 sm:left-16 w-8 h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 4: Forward Side 1">
+              4
+            </button>
+            <!-- Interactive Pin 5: Side Backward 2 -->
+            <button onclick="selectButton(5)" class="badge-btn absolute top-60 left-14 sm:left-18 w-8 h-8 rounded-full bg-cyber-emerald text-obsidian-950 font-bold font-mono text-sm flex items-center justify-center shadow-md ring-2 ring-white/20 transition-all focus:outline-none" aria-label="Button 5: Backward Side 2">
+              5
+            </button>
+          </div>
+        </div>
+
+        <!-- Right: Dynamic Button Details & Live DPI Tester -->
+        <div class="lg:col-span-6 space-y-6">
+          
+          <!-- Selected Button Card -->
+          <div class="bg-obsidian-900 border border-obsidian-800 rounded-xl p-5 shadow-lg">
+            <div class="flex items-center justify-between pb-3 border-b border-obsidian-800">
+              <div class="flex items-center gap-2">
+                <span id="btn-badge" class="px-2.5 py-1 rounded bg-cyber-emerald/10 text-cyber-emerald font-mono font-bold text-sm">Button 1</span>
+                <span id="btn-name" class="font-bold text-white text-base">Left Mouse Button</span>
+              </div>
+              <span id="btn-slot" class="text-xs font-mono text-slate-400">Slot 0 &bull; Office 0x00C0 / Gaming 0x00F1</span>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-4 text-xs">
+              <div>
+                <span class="text-slate-400 block">Switch Type:</span>
+                <span id="btn-switch" class="text-slate-200 font-semibold text-sm">Huano 50M Blue Shell Pink Dot</span>
+              </div>
+              <div>
+                <span class="text-slate-400 block">Default USB HID Bytecode:</span>
+                <code id="btn-code" class="text-cyber-emerald font-mono text-sm font-bold">0x01 0x01 0x00 0x00</code>
+              </div>
+            </div>
+
+            <div class="mt-4 pt-3 border-t border-obsidian-800 text-xs text-slate-300">
+              <span class="text-slate-400 font-medium">Rebind Capabilities:</span>
+              <p id="btn-desc" class="mt-1">Standard mouse click, single keyboard key, full keyboard modifiers (Ctrl/Shift/Alt/Win), multimedia play/pause/volume, or rapid burst fire.</p>
+            </div>
+          </div>
+
+          <!-- Live Interactive DPI Tester Card -->
+          <div class="bg-obsidian-900 border border-obsidian-800 rounded-xl p-5 shadow-lg">
+            <div class="flex items-center justify-between">
+              <h4 class="font-bold text-white text-sm flex items-center gap-2">
+                <i data-lucide="sliders" class="w-4 h-4 text-cyber-emerald"></i>
+                <span>Live Optical Sensor DPI Tester</span>
+              </h4>
+              <span id="live-dpi-label" class="text-cyber-emerald font-mono font-bold text-base">800 DPI (Stage 3)</span>
+            </div>
+            
+            <p class="text-xs text-slate-400 mt-1">Simulates the 14 hardware-calibrated discrete steps of the Sunplus SPCP6662 sensor.</p>
+
+            <div class="mt-4">
+              <input id="dpi-slider" type="range" min="0" max="13" value="3" oninput="updateDpiDemo(this.value)" class="w-full h-2 bg-obsidian-700 rounded-lg appearance-none cursor-pointer accent-cyber-emerald" aria-label="Calibrated DPI Steps">
+              <div class="flex justify-between text-[10px] font-mono text-slate-500 mt-2">
+                <span>200</span>
+                <span>800 (Default)</span>
+                <span>2400</span>
+                <span>6400</span>
+                <span>10000 (Max)</span>
+              </div>
+            </div>
+
+            <!-- Stage Color Swatches -->
+            <div class="mt-4 pt-3 border-t border-obsidian-800 flex items-center justify-between">
+              <span class="text-xs text-slate-400">LED Indicator Swatch:</span>
+              <div class="flex items-center gap-2">
+                <div id="dpi-color-swatch" class="w-6 h-6 rounded-full border border-white/20 transition-colors duration-200" style="background-color: #00ff00;"></div>
+                <span id="dpi-color-hex" class="text-xs font-mono text-slate-300">#00FF00</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== COMPARISON TABLE ==================== -->
+  <section id="comparison" class="py-16 border-b border-obsidian-850">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center max-w-2xl mx-auto mb-12">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-cyber-emerald">Engineering Superiority</h2>
+        <h3 class="text-3xl font-bold text-white mt-1">Stock Delphi Utility vs Reversed Rust Driver</h3>
+        <p class="text-sm text-slate-400 mt-2">Why replacing the vendor executable is essential for stability, security, and hardware longevity.</p>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse border border-obsidian-800 bg-obsidian-900 rounded-xl overflow-hidden text-sm text-left">
+          <thead>
+            <tr class="bg-obsidian-850 border-b border-obsidian-800 text-slate-300 font-mono text-xs uppercase">
+              <th class="py-3 px-4">Feature / Capability</th>
+              <th class="py-3 px-4 text-red-400 bg-red-950/20 border-r border-obsidian-800">Stock Vendor (EM624 Mouse.exe)</th>
+              <th class="py-3 px-4 text-cyber-emerald bg-emerald-950/20">Reversed Driver (em624-reversed)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-obsidian-800 text-slate-300">
+            <tr>
+              <td class="py-3 px-4 font-semibold text-white">Platform Support</td>
+              <td class="py-3 px-4 border-r border-obsidian-800 text-slate-400">Windows 32-bit only (Closed source)</td>
+              <td class="py-3 px-4 text-cyber-emerald font-semibold">100% Native Linux &bull; Windows 64-bit</td>
+            </tr>
+            <tr>
+              <td class="py-3 px-4 font-semibold text-white">Memory Footprint</td>
+              <td class="py-3 px-4 border-r border-obsidian-800 text-slate-400">60MB – 95MB RAM (GDI leak risk)</td>
+              <td class="py-3 px-4 text-cyber-emerald font-semibold">&le; 10MB Working Set (Active heap compaction)</td>
+            </tr>
+            <tr>
+              <td class="py-3 px-4 font-semibold text-white">DPI Stage 6 Handling</td>
+              <td class="py-3 px-4 border-r border-obsidian-800 text-red-400">Allows Stage 6 &rarr; <strong class="underline">Freezes physical clicks</strong></td>
+              <td class="py-3 px-4 text-cyber-emerald font-semibold">Automatic hardware masking (<code class="text-xs bg-obsidian-800 px-1 py-0.5 rounded">&amp;= 0xDF</code>)</td>
+            </tr>
+            <tr>
+              <td class="py-3 px-4 font-semibold text-white">Sensor Orientation Safeguard</td>
+              <td class="py-3 px-4 border-r border-obsidian-800 text-red-400">Overwrites 0x0006 with 0x00 &rarr; <strong class="underline">Inverted Axes</strong></td>
+              <td class="py-3 px-4 text-cyber-emerald font-semibold">Enforces 0x7F (180&deg; calibration) + 1-Click Repair</td>
+            </tr>
+            <tr>
+              <td class="py-3 px-4 font-semibold text-white">Hardware Checksums</td>
+              <td class="py-3 px-4 border-r border-obsidian-800 text-slate-400">Hardcoded table dumps</td>
+              <td class="py-3 px-4 text-cyber-emerald font-semibold">Dynamic 5-Sector formula: <code class="text-xs bg-obsidian-800 px-1 py-0.5 rounded">(sum ^ 0x5A) &amp; 0xFF</code></td>
+            </tr>
+            <tr>
+              <td class="py-3 px-4 font-semibold text-white">Cloud Typography</td>
+              <td class="py-3 px-4 border-r border-obsidian-800 text-slate-400">Fixed bitmap fonts</td>
+              <td class="py-3 px-4 text-cyber-emerald font-semibold">Instant verification via Google Fonts &amp; Fontshare</td>
+            </tr>
+            <tr>
+              <td class="py-3 px-4 font-semibold text-white">Window Dimensions</td>
+              <td class="py-3 px-4 border-r border-obsidian-800 text-slate-400">Rigid fixed dialog box (no scaling)</td>
+              <td class="py-3 px-4 text-cyber-emerald font-semibold">Arbitrary free resize toggle + Quick size presets</td>
+            </tr>
+            <tr>
+              <td class="py-3 px-4 font-semibold text-white">Automated CLI &amp; Scripting</td>
+              <td class="py-3 px-4 border-r border-obsidian-800 text-slate-400">None (GUI only)</td>
+              <td class="py-3 px-4 text-cyber-emerald font-semibold">Full CLI suite: inspect, apply, dump, fix, listen</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== PROTOCOL & ARCHITECTURE ==================== -->
+  <section id="architecture" class="py-16 bg-obsidian-900/40 border-b border-obsidian-850">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center max-w-2xl mx-auto mb-12">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-cyber-emerald">Hardware Communication</h2>
+        <h3 class="text-3xl font-bold text-white mt-1">USB HID Feature Report Protocol</h3>
+        <p class="text-sm text-slate-400 mt-2">Reverse-engineered packet transmission across Interface 1, Collection 04.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+        
+        <!-- Report 0x40 -->
+        <div class="bg-obsidian-900 border border-obsidian-800 rounded-xl p-6 shadow-md">
+          <div class="flex items-center justify-between pb-3 border-b border-obsidian-800">
+            <span class="font-mono font-bold text-cyber-emerald text-base">Feature Report 0x40</span>
+            <span class="text-xs font-mono text-slate-400">8 Bytes &bull; Control Dispatcher</span>
+          </div>
+
+          <div class="mt-4 space-y-2 text-xs font-mono">
+            <div class="p-2.5 rounded bg-obsidian-850 border border-obsidian-800 flex items-center justify-between">
+              <span class="text-white font-bold">40 07 00 00 08 00 00 00</span>
+              <span class="text-slate-400 font-sans">Opcode 0x07: Prepare 2048B Write</span>
+            </div>
+            <div class="p-2.5 rounded bg-obsidian-850 border border-obsidian-800 flex items-center justify-between">
+              <span class="text-cyber-sky font-bold">40 0D 00 00 00 00 00 00</span>
+              <span class="text-slate-400 font-sans">Opcode 0x0D: Live Soft Apply</span>
+            </div>
+            <div class="p-2.5 rounded bg-obsidian-850 border border-obsidian-800 flex items-center justify-between">
+              <span class="text-cyber-amber font-bold">40 0E 00 00 00 00 00 00</span>
+              <span class="text-slate-400 font-sans">Opcode 0x0E: EEPROM Burn &amp; Bus Reset</span>
+            </div>
+            <div class="p-2.5 rounded bg-obsidian-850 border border-obsidian-800 flex items-center justify-between">
+              <span class="text-purple-400 font-bold">40 09 00 00 08 00 00 00</span>
+              <span class="text-slate-400 font-sans">Opcode 0x09: Prepare 2048B Read</span>
+            </div>
+          </div>
+
+          <p class="mt-4 text-xs text-slate-400 leading-relaxed font-sans">
+            Dispatches hardware memory commands directly to the Sunplus MCU. Opcode 0x0D applies live registers, while Opcode 0x0E burns RAM to non-volatile flash and causes the MCU to momentarily reset the USB controller.
+          </p>
+        </div>
+
+        <!-- Report 0x41 -->
+        <div class="bg-obsidian-900 border border-obsidian-800 rounded-xl p-6 shadow-md">
+          <div class="flex items-center justify-between pb-3 border-b border-obsidian-800">
+            <span class="font-mono font-bold text-cyber-sky text-base">Feature Report 0x41</span>
+            <span class="text-xs font-mono text-slate-400">8 Bytes &bull; 7-Byte Chunk Stream</span>
+          </div>
+
+          <div class="mt-4 p-3 rounded bg-obsidian-850 border border-obsidian-800 text-xs font-mono">
+            <div class="text-slate-400 mb-1">Packet Framing Structure:</div>
+            <div class="text-cyber-sky font-bold">[0x41, B0, B1, B2, B3, B4, B5, B6]</div>
+            <div class="text-slate-400 mt-2">Transfer Mechanics:</div>
+            <ul class="text-slate-300 space-y-1 list-disc list-inside mt-1 font-sans">
+              <li>2048-byte profile divided by 7 &rarr; <strong>292 full chunks</strong></li>
+              <li>1 remainder chunk (4 bytes + 3x 0xFF pad) &rarr; <strong>293 chunks total</strong></li>
+              <li>Inter-packet pacing delay: <strong>4ms &ndash; 6ms</strong></li>
+            </ul>
+          </div>
+
+          <p class="mt-4 text-xs text-slate-400 leading-relaxed font-sans">
+            Transmits the full EEPROM profile in serialized slices. Validated checksum sectors ensure that corrupted data packets cannot break button click execution.
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== QUICK START & INSTALLATION ==================== -->
+  <section id="quickstart" class="py-16 border-b border-obsidian-850">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center max-w-2xl mx-auto mb-10">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-cyber-emerald">Get Started in Seconds</h2>
+        <h3 class="text-3xl font-bold text-white mt-1">Installation &amp; Setup</h3>
+      </div>
+
+      <div class="max-w-3xl mx-auto">
+        
+        <!-- OS Selection Tabs -->
+        <div class="flex border-b border-obsidian-800">
+          <button onclick="switchTab('tab-linux')" id="btn-tab-linux" class="px-6 py-3 font-medium text-sm border-b-2 border-cyber-emerald text-white flex items-center gap-2 focus:outline-none">
+            <i data-lucide="terminal" class="w-4 h-4 text-cyber-emerald"></i>
+            <span>Linux (Non-Root Udev)</span>
+          </button>
+          <button onclick="switchTab('tab-win')" id="btn-tab-win" class="px-6 py-3 font-medium text-sm border-b-2 border-transparent text-slate-400 hover:text-white flex items-center gap-2 focus:outline-none">
+            <i data-lucide="monitor" class="w-4 h-4 text-cyber-sky"></i>
+            <span>Windows (Standalone)</span>
+          </button>
+        </div>
+
+        <!-- Tab 1: Linux -->
+        <div id="tab-linux" class="bg-obsidian-900 border border-t-0 border-obsidian-800 rounded-b-xl p-6 space-y-4">
+          <div class="text-xs text-slate-400">1. Install USB development headers &amp; clone repo:</div>
+          <div class="relative bg-obsidian-950 p-3 rounded-lg font-mono text-xs text-slate-200 border border-obsidian-800">
+            <code>sudo apt install -y pkg-config libudev-dev libusb-1.0-0-dev<br>git clone https://github.com/AlexAn75541/em624reverse.git<br>cd em624reverse</code>
+            <button onclick="copySnippet(this)" class="absolute top-2 right-2 px-2 py-1 bg-obsidian-800 hover:bg-obsidian-700 rounded text-[11px] text-slate-300 border border-obsidian-700">Copy</button>
+          </div>
+
+          <div class="text-xs text-slate-400 mt-2">2. Install non-root udev rules (allows flashing without sudo):</div>
+          <div class="relative bg-obsidian-950 p-3 rounded-lg font-mono text-xs text-slate-200 border border-obsidian-800">
+            <code>sudo ./scripts/install_udev.sh<br>sudo udevadm control --reload-rules &amp;&amp; sudo udevadm trigger</code>
+            <button onclick="copySnippet(this)" class="absolute top-2 right-2 px-2 py-1 bg-obsidian-800 hover:bg-obsidian-700 rounded text-[11px] text-slate-300 border border-obsidian-700">Copy</button>
+          </div>
+
+          <div class="text-xs text-slate-400 mt-2">3. Build and run the native GUI:</div>
+          <div class="relative bg-obsidian-950 p-3 rounded-lg font-mono text-xs text-cyber-emerald border border-obsidian-800">
+            <code>cargo run --release</code>
+            <button onclick="copySnippet(this)" class="absolute top-2 right-2 px-2 py-1 bg-obsidian-800 hover:bg-obsidian-700 rounded text-[11px] text-slate-300 border border-obsidian-700">Copy</button>
+          </div>
+        </div>
+
+        <!-- Tab 2: Windows -->
+        <div id="tab-win" class="hidden bg-obsidian-900 border border-t-0 border-obsidian-800 rounded-b-xl p-6 space-y-4">
+          <div class="text-xs text-slate-400">Option A: Download Standalone Release ZIP:</div>
+          <p class="text-sm text-slate-300">
+            Grab <code class="text-xs bg-obsidian-950 px-1.5 py-0.5 rounded text-cyber-sky">em624-reversed-windows-x64.zip</code> from the <a href="https://github.com/AlexAn75541/em624reverse/releases" class="text-cyber-emerald hover:underline">Releases page</a>. Extract and double click <code class="text-xs bg-obsidian-950 px-1.5 py-0.5 rounded text-white">em624-reversed.exe</code>. Zero installation required.
+          </p>
+
+          <div class="text-xs text-slate-400 mt-4">Option B: Build from Source:</div>
+          <div class="relative bg-obsidian-950 p-3 rounded-lg font-mono text-xs text-slate-200 border border-obsidian-800">
+            <code>git clone https://github.com/AlexAn75541/em624reverse.git<br>cd em624reverse<br>cargo build --release<br>.\target\release\em624-reversed.exe</code>
+            <button onclick="copySnippet(this)" class="absolute top-2 right-2 px-2 py-1 bg-obsidian-800 hover:bg-obsidian-700 rounded text-[11px] text-slate-300 border border-obsidian-700">Copy</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ==================== DOCUMENTATION DIRECTORY CARDS ==================== -->
+  <section class="py-16 bg-obsidian-900/30 border-b border-obsidian-850">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center max-w-2xl mx-auto mb-10">
+        <h2 class="text-xs font-mono uppercase tracking-widest text-cyber-emerald">Complete Technical Library</h2>
+        <h3 class="text-3xl font-bold text-white mt-1">Documentation Portal</h3>
+        <p class="text-sm text-slate-400 mt-2">Split into intuitive User How-Tos and deep-dive technical engineering specs.</p>
+      </div>
+
+      <!-- User Guides Section -->
+      <div class="mb-8">
+        <div class="flex items-center gap-2 mb-4">
+          <span class="px-2.5 py-0.5 rounded bg-cyber-emerald/10 text-cyber-emerald border border-cyber-emerald/30 font-mono text-xs font-semibold">User Guides &amp; How-Tos</span>
+          <div class="h-px bg-obsidian-800 flex-1"></div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          <a href="manual/#/installation" class="group bg-obsidian-900 border border-obsidian-800 hover:border-cyber-emerald/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-cyber-emerald/10 text-cyber-emerald flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="download-cloud" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-sm group-hover:text-cyber-emerald transition-colors">Installation &amp; Linux Udev</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Zero-install Windows binary setup and non-root Linux udev permissions.</p>
+          </a>
+
+          <a href="manual/#/configuration" class="group bg-obsidian-900 border border-obsidian-800 hover:border-cyber-sky/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-cyber-sky/10 text-cyber-sky flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="sliders" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-sm group-hover:text-cyber-sky transition-colors">DPI, RGB &amp; Buttons</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Calibrating 14-step DPI, tuning 7 lighting effects, and keybinding.</p>
+          </a>
+
+          <a href="manual/#/typography" class="group bg-obsidian-900 border border-obsidian-800 hover:border-purple-400/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-purple-400/10 text-purple-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="type" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-sm group-hover:text-purple-400 transition-colors">Cloud Fonts &amp; Sizing</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Applying Google Fonts and Fontshare typography with custom window sizes.</p>
+          </a>
+
+          <a href="manual/#/troubleshooting" class="group bg-obsidian-900 border border-obsidian-800 hover:border-amber-400/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-amber-400/10 text-cyber-amber flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="shield-alert" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-sm group-hover:text-cyber-amber transition-colors">Troubleshooting Bible</h4>
+            <p class="text-xs text-slate-400 mt-1.5">1-click axis inversion repair, unbricking dead clicks, and hardware reset.</p>
+          </a>
+        </div>
+      </div>
+
+      <!-- Nerdy Developer Zone -->
+      <div>
+        <div class="flex items-center gap-2 mb-4">
+          <span class="px-2.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/30 font-mono text-xs font-semibold">🤓 Nerdy / Developer Zone</span>
+          <div class="h-px bg-obsidian-800 flex-1"></div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+          <a href="manual/#/driver-internals" class="group bg-obsidian-900 border border-obsidian-800 hover:border-purple-400/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-purple-400/10 text-purple-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="binary" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-base group-hover:text-purple-400 transition-colors"><code>em624-driver</code> Architecture</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Sub-10MB RAM heap compaction, Win32 Raw Input packet sniffer, and dual-table synchronization pipeline.</p>
+          </a>
+
+          <a href="manual/#/hardware" class="group bg-obsidian-900 border border-obsidian-800 hover:border-cyber-emerald/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-cyber-emerald/10 text-cyber-emerald flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="cpu" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-base group-hover:text-cyber-emerald transition-colors">Silicon &amp; Sensor Hardware</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Sunplus SPCP6662 DSP, SPCP6651B MCU, and the 180&deg; coordinate transformation matrix (byte 0x0006).</p>
+          </a>
+
+          <a href="manual/#/protocol" class="group bg-obsidian-900 border border-obsidian-800 hover:border-cyber-sky/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-cyber-sky/10 text-cyber-sky flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="network" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-base group-hover:text-cyber-sky transition-colors">USB HID Protocol &amp; Packets</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Feature Reports 0x40 and 0x41, opcodes 0x07, 0x0D, 0x0E, and the 5-sector checksum formula.</p>
+          </a>
+
+          <a href="manual/#/memory-map" class="group bg-obsidian-900 border border-obsidian-800 hover:border-cyber-emerald/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-cyber-emerald/10 text-cyber-emerald flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="hard-drive" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-base group-hover:text-cyber-emerald transition-colors">2048-Byte EEPROM Map</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Full memory layout from 0x0000 to 0x07FF, including Stage RGB offsets, button tables, and macro bank.</p>
+          </a>
+
+          <a href="manual/#/macros" class="group bg-obsidian-900 border border-obsidian-800 hover:border-cyber-sky/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-cyber-sky/10 text-cyber-sky flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="code-2" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-base group-hover:text-cyber-sky transition-colors">Macro Bytecode Engine &amp; VM</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Bytecode instruction set, delay timers, keyup/keydown opcodes, and continuous loop modes.</p>
+          </a>
+
+          <a href="manual/#/cli-reference" class="group bg-obsidian-900 border border-obsidian-800 hover:border-purple-400/50 rounded-xl p-5 transition-all shadow-md">
+            <div class="w-10 h-10 rounded-lg bg-purple-400/10 text-purple-400 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+              <i data-lucide="terminal-square" class="w-5 h-5"></i>
+            </div>
+            <h4 class="font-bold text-white text-base group-hover:text-purple-400 transition-colors">CLI Automation &amp; Sniffer</h4>
+            <p class="text-xs text-slate-400 mt-1.5">Batch profile repair, raw HID packet sniffing, EEPROM memory dumping, and headless flash scripting.</p>
+          </a>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ==================== FOOTER ==================== -->
+  <footer class="py-12 bg-obsidian-950 text-slate-400 text-xs">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div class="flex items-center gap-2">
+        <img src="assets/damouse.png" alt="Logo" class="w-6 h-6 rounded">
+        <span>E-DRA EM624 Reverse Engineering Project &bull; Released under the <a href="https://opensource.org/licenses/MIT" class="text-slate-300 hover:underline">MIT License</a></span>
+      </div>
+      <div class="flex items-center gap-6">
+        <a href="manual/#/" class="hover:text-white transition-colors">Documentation</a>
+        <a href="manual/#/troubleshooting" class="hover:text-cyber-amber transition-colors">Troubleshooting</a>
+        <a href="https://github.com/AlexAn75541/em624reverse" target="_blank" rel="noopener noreferrer" class="hover:text-white transition-colors">GitHub Repository</a>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ==================== SCRIPT FOR INTERACTIVE DEMOS ==================== -->
+  <script>
+    lucide.createIcons();
+
+    // Data for interactive mouse buttons
+    const BUTTON_DATA = {
+      1: {
+        badge: "Button 1",
+        name: "Left Mouse Button (Microswitch)",
+        slot: "Slot 0 • Office 0x00C0 / Gaming 0x00F1",
+        switchType: "Huano 50M Blue Shell Pink Dot",
+        code: "0x01 0x01 0x00 0x00",
+        desc: "Primary click switch. Rebindable to any mouse action, keyboard key, or custom macro."
+      },
+      2: {
+        badge: "Button 2",
+        name: "Right Mouse Button (Microswitch)",
+        slot: "Slot 1 • Office 0x00C4 / Gaming 0x00F5",
+        switchType: "Huano 50M Blue Shell Pink Dot",
+        code: "0x01 0x02 0x00 0x00",
+        desc: "Secondary click switch. Full context menu action or custom game binding."
+      },
+      3: {
+        badge: "Button 3",
+        name: "Middle Click (Wheel Microswitch)",
+        slot: "Slot 2 • Office 0x00C8 / Gaming 0x00F9",
+        switchType: "Tactile Wheel Microswitch",
+        code: "0x01 0x04 0x00 0x00",
+        desc: "Wheel press trigger. Used for browser tab close, autoscroll, or custom consumer controls."
+      },
+      4: {
+        badge: "Button 4",
+        name: "Forward Side Button 1 (Thumb)",
+        slot: "Slot 3 • Office 0x00CC / Gaming 0x00FD",
+        switchType: "Huano Tactile Side Switch",
+        code: "0x01 0x08 0x00 0x00",
+        desc: "Upper thumb side button. Standard browser forward, gaming hotkeys, or macro trigger."
+      },
+      5: {
+        badge: "Button 5",
+        name: "Backward Side Button 2 (Thumb)",
+        slot: "Slot 4 • Office 0x00D0 / Gaming 0x0101",
+        switchType: "Huano Tactile Side Switch",
+        code: "0x01 0x10 0x00 0x00",
+        desc: "Lower thumb side button. Standard browser back, push-to-talk voice key, or game binding."
+      },
+      6: {
+        badge: "Button 6",
+        name: "DPI Loop Switch (Top Center)",
+        slot: "Slot 5 • Office 0x00D4 / Gaming 0x0105",
+        switchType: "Low-profile Top Microswitch",
+        code: "0x08 0x12 0x00 0x00",
+        desc: "Cycles through active DPI stages. Rebindable to media controls or office/gaming profile switcher."
+      },
+      7: {
+        badge: "Button 7",
+        name: "Rapid Fire / Burst Key (Top Wing)",
+        slot: "Slot 6 • Office 0x00D8 / Gaming 0x0109",
+        switchType: "Quick-Action Wing Switch",
+        code: "0x06 0x00 0x00 0x00",
+        desc: "Hardware rapid click trigger. Emits fast automated click pulses with configurable millisecond delay."
+      }
+    };
+
+    function selectButton(id) {
+      const data = BUTTON_DATA[id];
+      if (!data) return;
+      document.getElementById('btn-badge').innerText = data.badge;
+      document.getElementById('btn-name').innerText = data.name;
+      document.getElementById('btn-slot').innerText = data.slot;
+      document.getElementById('btn-switch').innerText = data.switchType;
+      document.getElementById('btn-code').innerText = data.code;
+      document.getElementById('btn-desc').innerText = data.desc;
+    }
+
+    // 14 Calibrated DPI steps
+    const DPI_TABLE = [200, 400, 600, 800, 1000, 1200, 1600, 2000, 2400, 3200, 4800, 6400, 8000, 10000];
+    const DPI_COLORS = [
+      { hex: "#FF0000", name: "Red (Stage 1)" },
+      { hex: "#0000FF", name: "Blue (Stage 2)" },
+      { hex: "#00FF00", name: "Green (Stage 3)" },
+      { hex: "#FFFF00", name: "Yellow (Stage 4)" },
+      { hex: "#00FFFF", name: "Cyan (Stage 5)" },
+      { hex: "#FF00FF", name: "Magenta (Stage 6)" }
+    ];
+
+    function updateDpiDemo(idx) {
+      const dpi = DPI_TABLE[idx];
+      const stageIdx = Math.min(Math.floor(idx / 2.5), 5);
+      const stageColor = DPI_COLORS[stageIdx];
+      document.getElementById('live-dpi-label').innerText = `${dpi} DPI (Stage ${stageIdx + 1})`;
+      document.getElementById('dpi-color-swatch').style.backgroundColor = stageColor.hex;
+      document.getElementById('dpi-color-hex').innerText = stageColor.hex;
+    }
+
+    // Tab switching for Quick Start
+    function switchTab(tabId) {
+      document.getElementById('tab-linux').classList.add('hidden');
+      document.getElementById('tab-win').classList.add('hidden');
+      document.getElementById('btn-tab-linux').classList.replace('border-cyber-emerald', 'border-transparent');
+      document.getElementById('btn-tab-linux').classList.replace('text-white', 'text-slate-400');
+      document.getElementById('btn-tab-win').classList.replace('border-cyber-emerald', 'border-transparent');
+      document.getElementById('btn-tab-win').classList.replace('text-white', 'text-slate-400');
+
+      document.getElementById(tabId).classList.remove('hidden');
+      if (tabId === 'tab-linux') {
+        document.getElementById('btn-tab-linux').classList.replace('border-transparent', 'border-cyber-emerald');
+        document.getElementById('btn-tab-linux').classList.replace('text-slate-400', 'text-white');
+      } else {
+        document.getElementById('btn-tab-win').classList.replace('border-transparent', 'border-cyber-emerald');
+        document.getElementById('btn-tab-win').classList.replace('text-slate-400', 'text-white');
+      }
+    }
+
+    // Snippet copy
+    function copySnippet(btn) {
+      const code = btn.parentElement.querySelector('code').innerText;
+      navigator.clipboard.writeText(code).then(() => {
+        btn.innerText = "Copied!";
+        setTimeout(() => { btn.innerText = "Copy"; }, 2000);
+      });
+    }
+  </script>
+</body>
+</html>

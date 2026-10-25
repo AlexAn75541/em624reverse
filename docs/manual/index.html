@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>E-DRA EM624 Documentation & Reverse Engineering Manual</title>
+  <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1" />
+  <meta name="description" content="Complete documentation, hardware specifications, protocol reverse-engineering, and troubleshooting guides for the E-DRA EM624 gaming mouse.">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">
+  <link rel="icon" href="../assets/damouse.png" type="image/png">
+  
+  <!-- Theme: Dark modern docsify theme -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/docsify-themeable@0/dist/css/theme-simple-dark.css">
+  
+  <!-- Custom Overrides for Obsidian Dark & Emerald Aesthetics -->
+  <style>
+    :root {
+      --base-font-size: 15px;
+      --theme-color: #10b981;
+      --mono-tint: #0b0f19;
+      --mono-shade1: #111827;
+      --mono-shade2: #1f2937;
+      --mono-shade3: #374151;
+      --sidebar-background: #0d1117;
+      --sidebar-border-color: #21262d;
+      --content-max-width: 900px;
+      --code-inline-background: rgba(16, 185, 129, 0.12);
+      --code-inline-color: #34d399;
+      --code-theme-background: #161b22;
+      --blockquote-border-color: #10b981;
+      --link-color: #34d399;
+      --link-color--hover: #6ee7b7;
+    }
+    
+    .sidebar-nav li strong {
+      color: #9ca3af;
+      font-size: 0.85em;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    
+    .app-name-link {
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .app-name-link img {
+      width: 28px;
+      height: 28px;
+      border-radius: 4px;
+    }
+    
+    .callout-warning {
+      background: rgba(245, 158, 11, 0.1);
+      border-left: 4px solid #f59e0b;
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin: 16px 0;
+    }
+
+    .callout-danger {
+      background: rgba(239, 68, 68, 0.1);
+      border-left: 4px solid #ef4444;
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin: 16px 0;
+    }
+
+    .callout-success {
+      background: rgba(16, 185, 129, 0.1);
+      border-left: 4px solid #10b981;
+      padding: 12px 16px;
+      border-radius: 4px;
+      margin: 16px 0;
+    }
+
+    .docsify-tabs__tab {
+      background-color: #1f2937 !important;
+      color: #9ca3af !important;
+      border: 1px solid #374151 !important;
+    }
+    .docsify-tabs__tab--active {
+      background-color: #111827 !important;
+      color: #10b981 !important;
+      border-bottom-color: #111827 !important;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <div id="app">Loading E-DRA EM624 Documentation Portal...</div>
+  <script>
+    window.$docsify = {
+      name: 'EM624 Manual',
+      repo: 'https://github.com/AlexAn75541/em624reverse',
+      logo: '../assets/damouse.png',
+      loadSidebar: true,
+      loadNavbar: true,
+      subMaxLevel: 3,
+      auto2top: true,
+      search: {
+        maxAge: 86400000,
+        paths: 'auto',
+        placeholder: 'Search documentation...',
+        noData: 'No matching records found',
+        depth: 4
+      },
+      copyCode: {
+        buttonText: 'Copy',
+        errorText: 'Failed',
+        successText: 'Copied'
+      },
+      pagination: {
+        previousText: 'Previous Page',
+        nextText: 'Next Page',
+        crossChapter: true
+      },
+      tabs: {
+        persist: true,
+        sync: true,
+        theme: 'classic',
+        tabComments: true,
+        tabHeadings: true
+      }
+    }
+  </script>
+  <!-- Docsify Core -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify@4/lib/docsify.min.js"></script>
+  <!-- Plugins -->
+  <script src="https://cdn.jsdelivr.net/npm/docsify/lib/plugins/search.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-copy-code/dist/docsify-copy-code.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-pagination/dist/docsify-pagination.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify-tabs@1"></script>
+  <script src="https://cdn.jsdelivr.net/npm/docsify/lib/plugins/zoom-image.min.js"></script>
+  
+  <!-- Prism Syntax Highlighting -->
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-rust.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-c.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-nasm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-json.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1/components/prism-powershell.min.js"></script>
+</body>
+</html>

@@ -59,6 +59,10 @@ pub struct AppConfig {
     pub allow_stage_6: bool,
     #[serde(default)]
     pub show_mode_switcher: bool,
+    #[serde(default)]
+    pub custom_font_name: Option<String>,
+    #[serde(default)]
+    pub free_window_resize: bool,
 }
 
 impl Default for AppConfig {
@@ -72,11 +76,16 @@ impl Default for AppConfig {
             custom_data_dir: None,
             allow_stage_6: false,
             show_mode_switcher: false,
+            custom_font_name: None,
+            free_window_resize: false,
         }
     }
 }
 
 impl AppConfig {
+    pub fn fonts_dir(&self) -> PathBuf {
+        self.get_master_data_dir().join(".fonts")
+    }
     pub fn get_master_data_dir(&self) -> PathBuf {
         if let Some(ref custom) = self.custom_data_dir {
             let trimmed = custom.trim();
@@ -203,6 +212,12 @@ pub struct Em624App {
     device_rx: std::sync::mpsc::Receiver<crate::platform::DeviceStatus>,
     custom_dir_input: String,
     custom_dir_error: Option<String>,
+    // Font settings & verification
+    font_input_name: String,
+    font_source_option: crate::font_service::FontSourceOption,
+    font_check_state: crate::font_service::FontCheckState,
+    font_check_rx:
+        Option<std::sync::mpsc::Receiver<Result<crate::font_service::VerifiedFont, String>>>,
 }
 
 pub fn format_time_date_log() -> String {
@@ -288,6 +303,7 @@ impl Default for Em624App {
 
         let (_tx, device_rx) = std::sync::mpsc::channel();
         let custom_dir_input = config.custom_data_dir.clone().unwrap_or_default();
+        let custom_font_name = config.custom_font_name.clone();
 
         let app = Self {
             config,
@@ -328,6 +344,10 @@ impl Default for Em624App {
             device_rx,
             custom_dir_input,
             custom_dir_error: None,
+            font_input_name: custom_font_name.unwrap_or_else(|| "Inter".to_string()),
+            font_source_option: crate::font_service::FontSourceOption::Auto,
+            font_check_state: crate::font_service::FontCheckState::Idle,
+            font_check_rx: None,
         };
 
         app.log_debug("[STARTUP] E-DRA EM624 Configurator GUI session started.");
@@ -355,6 +375,8 @@ impl Icons {
     pub const KEYBOARD: &'static str = "\u{f11c}"; // Keybind Wizard (nf-fa-keyboard_o)
     pub const BOLT: &'static str = "\u{f0e7}"; // Fire Key (nf-fa-bolt)
     pub const SLIDERS: &'static str = "\u{f1de}"; // Sliders / DPI (nf-fa-sliders)
+    pub const SEARCH: &'static str = "\u{f002}"; // Search (nf-fa-search)
+    pub const FONT: &'static str = "\u{f031}"; // Font (nf-fa-font)
 }
 
 /// Creates a widget text with configurable spacing between Nerd Font icon and text
@@ -420,7 +442,19 @@ pub fn icon_label_colored(icon: &str, text: &str, color: Color32) -> egui::Widge
     icon_label_colored_spaced(icon, text, color, 8.0)
 }
 
-fn configure_fonts(ctx: &egui::Context) {
+pub fn sanitize_font_filename(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+pub fn configure_fonts(ctx: &egui::Context, custom_font: Option<(&str, &[u8])>) {
     let mut fonts = egui::FontDefinitions::default();
 
     // 1. Primary Text Font: Dosis-Bold (All text, Latin + Vietnamese Extended)
@@ -437,31 +471,61 @@ fn configure_fonts(ctx: &egui::Context) {
         )),
     );
 
-    // Proportional text: Dosis-Bold first, fallback to CascadiaMono-NF for symbols
-    let prop = fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default();
-    prop.clear();
+    let mut prop = Vec::new();
+    let mut mono = Vec::new();
+
+    if let Some((custom_name, custom_bytes)) = custom_font {
+        fonts.font_data.insert(
+            custom_name.to_owned(),
+            egui::FontData::from_owned(custom_bytes.to_vec()),
+        );
+        prop.push(custom_name.to_owned());
+        mono.push(custom_name.to_owned());
+    }
+
+    // Fallbacks
     prop.push("Dosis-Bold".to_owned());
     prop.push("CascadiaMono-NF".to_owned());
 
-    // Monospace: CascadiaMono-NF first, fallback to Dosis-Bold
-    let mono = fonts
-        .families
-        .entry(egui::FontFamily::Monospace)
-        .or_default();
-    mono.clear();
     mono.push("CascadiaMono-NF".to_owned());
     mono.push("Dosis-Bold".to_owned());
+
+    fonts.families.insert(egui::FontFamily::Proportional, prop);
+    fonts.families.insert(egui::FontFamily::Monospace, mono);
 
     ctx.set_fonts(fonts);
 }
 
 impl Em624App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        configure_fonts(&cc.egui_ctx);
         let mut app = Self::default();
+
+        if let Some(ref font_name) = app.config.custom_font_name {
+            let font_path = app
+                .config
+                .fonts_dir()
+                .join(format!("{}.ttf", sanitize_font_filename(font_name)));
+            if let Ok(bytes) = fs::read(&font_path) {
+                configure_fonts(&cc.egui_ctx, Some((font_name, &bytes)));
+            } else {
+                configure_fonts(&cc.egui_ctx, None);
+            }
+        } else {
+            configure_fonts(&cc.egui_ctx, None);
+        }
+
+        if app.config.free_window_resize {
+            cc.egui_ctx
+                .send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+                    280.0, 200.0,
+                )));
+        } else {
+            cc.egui_ctx
+                .send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+                    700.0, 500.0,
+                )));
+        }
+
         app.device_rx = crate::platform::start_device_monitor();
         if app.config.debug_mode {
             app.spawn_native_terminal();
@@ -639,6 +703,15 @@ impl Em624App {
             self.profile.refresh_stages();
         }
 
+        // Active Mode (byte 0x00A4): 0x01 for Gaming Mode, 0x00 for Office Mode
+        self.profile.raw[0x00a4] = if self.active_tab == Tab::OfficeMode {
+            0x00
+        } else {
+            0x01
+        };
+        self.profile.raw[0x00aa] = 0x18; // Feature report enable
+        self.profile.raw[0x03f9] &= 0x7f; // Clear button lockout flag
+
         // Sync Polling Rate (byte 0x00A8): 125Hz=1, 250Hz=2, 500Hz=4, 1000Hz=15
         self.profile.raw[0x00a8] = match self.polling_rate_idx {
             0 => 0x01, // 125 Hz
@@ -734,6 +807,7 @@ impl Em624App {
                 match dev.write_profile(&self.profile.raw) {
                     Ok(()) => {
                         self.device_connected = true;
+                        let _ = dev.apply_soft_reset();
                         self.status_message =
                             "Successfully flashed profile to mouse! Settings active immediately."
                                 .to_string();
@@ -1019,6 +1093,19 @@ impl Em624App {
             let base_off = if is_gaming { 0x00f1 } else { 0x00c0 };
             let off = base_off + (slot_idx - 1) * 4;
             self.profile.raw[off..off + 4].copy_from_slice(&bytes);
+
+            // Also synchronize to complementary mode table (Office / Gaming)
+            // so physical hardware buttons ALWAYS trigger the rebound action regardless of
+            // internal MCU mode switch state.
+            let alt_base_off = if is_gaming { 0x00c0 } else { 0x00f1 };
+            let alt_off = alt_base_off + (slot_idx - 1) * 4;
+            self.profile.raw[alt_off..alt_off + 4].copy_from_slice(&bytes);
+
+            // Set active mode byte 0x00a4 (0x01 Gaming, 0x00 Office)
+            self.profile.raw[0x00a4] = if is_gaming { 0x01 } else { 0x00 };
+            self.profile.raw[0x00aa] = 0x18; // Feature report enable
+            self.profile.raw[0x03f9] &= 0x7f; // Clear button lockout flag
+
             self.profile.apply_safe_profile();
             self.profile.refresh_stages();
 
@@ -1028,11 +1115,11 @@ impl Em624App {
             let btn_num = slot_idx_to_button_num(slot_idx);
             let desc = format_binding_desc(&bytes);
             self.status_message = format!(
-                "Saved Button [{}] as '{}' to cached profile!",
+                "Saved Button [{}] as '{}'! Click 'Flash to Mouse' to commit to hardware.",
                 btn_num, desc
             );
             self.log_debug(&format!(
-                "[REMAP] Updated slot {} ({}) to bytecode {:02x?} ('{}') and cached to disk",
+                "[REMAP] Updated slot {} ({}) to bytecode {:02x?} ('{}') (synced to both mode tables & cached)",
                 slot_idx,
                 if is_gaming { "Gaming" } else { "Office" },
                 bytes,
@@ -1040,10 +1127,101 @@ impl Em624App {
             ));
         }
     }
+
+    pub fn start_font_verification(&mut self) {
+        let name = self.font_input_name.trim().to_string();
+        if name.is_empty() {
+            return;
+        }
+        self.font_check_state = crate::font_service::FontCheckState::Checking(name.clone());
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.font_check_rx = Some(rx);
+
+        let opt = self.font_source_option;
+        std::thread::spawn(move || {
+            let res = crate::font_service::verify_and_fetch_font(&name, opt);
+            let _ = tx.send(res);
+        });
+    }
+
+    pub fn poll_font_verification(&mut self, ctx: &egui::Context) {
+        if let Some(ref rx) = self.font_check_rx {
+            if let Ok(res) = rx.try_recv() {
+                match res {
+                    Ok(verified) => {
+                        self.font_check_state =
+                            crate::font_service::FontCheckState::Available(verified);
+                    }
+                    Err(err) => {
+                        self.font_check_state = crate::font_service::FontCheckState::NotFound(err);
+                    }
+                }
+                self.font_check_rx = None;
+                ctx.request_repaint();
+            }
+        }
+    }
+
+    pub fn apply_verified_font(
+        &mut self,
+        ctx: &egui::Context,
+        verified: &crate::font_service::VerifiedFont,
+    ) {
+        let fonts_dir = self.config.fonts_dir();
+        let _ = fs::create_dir_all(&fonts_dir);
+        let filename = format!("{}.ttf", sanitize_font_filename(&verified.display_name));
+        let path = fonts_dir.join(filename);
+        if let Err(e) = fs::write(&path, &verified.font_bytes) {
+            self.font_check_state =
+                crate::font_service::FontCheckState::Error(format!("Failed to save font: {}", e));
+            return;
+        }
+
+        self.config.custom_font_name = Some(verified.display_name.clone());
+        self.config.save();
+
+        configure_fonts(ctx, Some((&verified.display_name, &verified.font_bytes)));
+        ctx.request_repaint();
+        self.status_message = format!("Activated font '{}' globally.", verified.display_name);
+        trim_working_set();
+    }
+
+    pub fn reset_to_default_font(&mut self, ctx: &egui::Context) {
+        self.config.custom_font_name = None;
+        self.config.save();
+        configure_fonts(ctx, None);
+        ctx.request_repaint();
+        self.font_check_state = crate::font_service::FontCheckState::Idle;
+        self.status_message = "Reset UI font to default (Dosis-Bold).".to_string();
+        trim_working_set();
+    }
+
+    pub fn toggle_free_window_resize(&mut self, ctx: &egui::Context, free: bool) {
+        self.config.free_window_resize = free;
+        self.config.save();
+        if free {
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+                280.0, 200.0,
+            )));
+            self.status_message = "Free window resize unlocked: constraints removed.".to_string();
+        } else {
+            ctx.send_viewport_cmd(egui::ViewportCommand::MinInnerSize(egui::vec2(
+                700.0, 500.0,
+            )));
+            self.status_message =
+                "Standard window boundaries and ratio constraints restored.".to_string();
+        }
+    }
+
+    pub fn set_window_size_preset(&mut self, ctx: &egui::Context, width: f32, height: f32) {
+        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(egui::vec2(width, height)));
+        self.status_message = format!("Resized window to {}x{}.", width as u32, height as u32);
+    }
 }
 
 impl eframe::App for Em624App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll_font_verification(ctx);
         while let Ok(status) = self.device_rx.try_recv() {
             match status {
                 crate::platform::DeviceStatus::Connected { info, vid, pid } => {
@@ -1254,7 +1432,23 @@ impl eframe::App for Em624App {
 
         // Bottom Action Toolbar & Status Bar
         egui::TopBottomPanel::bottom("bottom_toolbar").show(ctx, |ui| {
-            ui.add_space(6.0);
+            ui.add_space(4.0);
+            let available_w = ui.available_width();
+            let is_compact = available_w < 950.0;
+
+            // When window is half-scaled or narrow (<950px), move status message one section up from the action buttons
+            if is_compact {
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(&self.status_message)
+                                .color(pal.text_secondary),
+                        );
+                    });
+                });
+                ui.add_space(2.0);
+            }
+
             ui.horizontal(|ui| {
                 if ui
                     .button(icon_label(Icons::DOWNLOAD, Strings::btn_read(self.config.language)))
@@ -1348,14 +1542,16 @@ impl eframe::App for Em624App {
                     }
                 }
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(
-                        egui::RichText::new(&self.status_message)
-                            .color(pal.text_secondary),
-                    );
-                });
+                if !is_compact {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        ui.label(
+                            egui::RichText::new(&self.status_message)
+                                .color(pal.text_secondary),
+                        );
+                    });
+                }
             });
-            ui.add_space(6.0);
+            ui.add_space(4.0);
         });
 
         // Central Content Area (Fully responsive ScrollArea for all tabs)
@@ -1384,15 +1580,12 @@ impl Em624App {
         let mut close_modal = false;
         let mut apply_binding = false;
         let btn_num = slot_idx_to_button_num(slot_idx);
-        let title = format!(
-            "Remap Button [{}] ({})",
-            btn_num,
-            if is_gaming {
-                "Game Mode"
-            } else {
-                "Office Mode"
-            }
-        );
+        let mode_label = if is_gaming {
+            Strings::game_mode_title(self.config.language)
+        } else {
+            Strings::office_mode_title(self.config.language)
+        };
+        let title = Strings::rebind_title(self.config.language, btn_num, mode_label);
 
         egui::Window::new(title)
             .collapsible(false)
@@ -1403,7 +1596,7 @@ impl Em624App {
 
                 // Step 1: Category Selection
                 ui.label(
-                    egui::RichText::new("Step 1: Pick a Keybind Category")
+                    egui::RichText::new(Strings::step1_cat(self.config.language))
                         .strong()
                         .color(Color32::from_rgb(0, 242, 254)),
                 );
@@ -1423,7 +1616,7 @@ impl Em624App {
 
                 // Step 2: Pick Key
                 ui.label(
-                    egui::RichText::new("Step 2: Pick a Key or Action")
+                    egui::RichText::new(Strings::step2_key(self.config.language))
                         .strong()
                         .color(Color32::from_rgb(0, 242, 254)),
                 );
@@ -1470,7 +1663,7 @@ impl Em624App {
                         .add_sized(
                             [160.0, 30.0],
                             egui::Button::new(
-                                egui::RichText::new("Done Keybinding")
+                                egui::RichText::new(Strings::done_btn(self.config.language))
                                     .strong()
                                     .color(Color32::BLACK),
                             )
@@ -1482,7 +1675,10 @@ impl Em624App {
                     }
 
                     if ui
-                        .add_sized([100.0, 30.0], egui::Button::new("Cancel"))
+                        .add_sized(
+                            [100.0, 30.0],
+                            egui::Button::new(Strings::cancel_btn(self.config.language)),
+                        )
                         .clicked()
                     {
                         close_modal = true;
@@ -1869,6 +2065,8 @@ impl Em624App {
                     ],
                 };
 
+                let mut open_rebind_slot = None;
+
                 for (slot_idx, label) in display_order {
                     if let Some(btn) = buttons.get(slot_idx - 1) {
                         let is_selected = self.selected_slot == slot_idx;
@@ -1905,6 +2103,10 @@ impl Em624App {
 
                         if response.clicked() {
                             self.selected_slot = slot_idx;
+                        }
+                        if response.double_clicked() {
+                            self.selected_slot = slot_idx;
+                            open_rebind_slot = Some(slot_idx);
                         }
 
                         if response.hovered() {
@@ -1961,6 +2163,11 @@ impl Em624App {
                     }
                 }
 
+                if let Some(slot) = open_rebind_slot {
+                    self.init_rebind_modal(slot, is_gaming);
+                    self.editing_slot = Some((slot, is_gaming));
+                }
+
                 ui.add_space(10.0);
                 let sel_button_num = slot_idx_to_button_num(self.selected_slot);
                 let change_btn_text = Strings::change_key_bind_btn(lang, sel_button_num);
@@ -1987,7 +2194,7 @@ impl Em624App {
             // Right Column: Centered Hardware Mouse Picture with Smart Scaling
             ui.vertical(|ui| {
                 ui.set_width(col2_w);
-                self.render_mouse_photo(ui, mouse_scale);
+                self.render_mouse_photo(ui, mouse_scale, is_gaming);
             });
 
             if pad_x > 0.0 {
@@ -1997,7 +2204,7 @@ impl Em624App {
         ui.add_space(pad_y);
     }
 
-    fn render_mouse_photo(&mut self, ui: &mut egui::Ui, scale: f32) {
+    fn render_mouse_photo(&mut self, ui: &mut egui::Ui, scale: f32, is_gaming: bool) {
         let display_size = Vec2::new(320.0 * scale, 340.0 * scale);
         let (rect, _response) = ui.allocate_exact_size(display_size, egui::Sense::hover());
         let painter = ui.painter_at(rect);
@@ -2051,6 +2258,11 @@ impl Em624App {
             );
             if badge_resp.clicked() {
                 self.selected_slot = slot_idx;
+            }
+            if badge_resp.double_clicked() {
+                self.selected_slot = slot_idx;
+                self.init_rebind_modal(slot_idx, is_gaming);
+                self.editing_slot = Some((slot_idx, is_gaming));
             }
             if badge_resp.hovered() {
                 self.hovered_button = Some(slot_idx);
@@ -2526,6 +2738,55 @@ impl Em624App {
         );
         ui.add_space(14.0);
 
+        // Active Development & Hardware Safety Warning Callout
+        egui::Frame::none()
+            .fill(Color32::from_rgb(32, 22, 8))
+            .stroke(Stroke::new(1.5_f32, Color32::from_rgb(255, 165, 0)))
+            .rounding(6.0)
+            .inner_margin(12.0)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new("[!] ")
+                            .strong()
+                            .size(16.0)
+                            .color(Color32::from_rgb(255, 165, 0)),
+                    );
+                    ui.label(
+                        egui::RichText::new(Strings::active_dev_warning_title(lang))
+                            .strong()
+                            .color(Color32::from_rgb(255, 185, 40)),
+                    );
+                });
+                ui.add_space(4.0);
+                ui.label(
+                    egui::RichText::new(Strings::active_dev_warning_body(lang))
+                        .color(Color32::from_rgb(240, 220, 190)),
+                );
+                ui.add_space(8.0);
+                ui.label(
+                    egui::RichText::new(Strings::active_dev_mitigation_title(lang))
+                        .strong()
+                        .color(Color32::from_rgb(255, 200, 80)),
+                );
+                ui.label(
+                    egui::RichText::new(Strings::active_dev_mitigation_axes(lang))
+                        .small()
+                        .color(Color32::from_rgb(210, 200, 180)),
+                );
+                ui.label(
+                    egui::RichText::new(Strings::active_dev_mitigation_buttons(lang))
+                        .small()
+                        .color(Color32::from_rgb(210, 200, 180)),
+                );
+                ui.label(
+                    egui::RichText::new(Strings::active_dev_mitigation_s6(lang))
+                        .small()
+                        .color(Color32::from_rgb(210, 200, 180)),
+                );
+            });
+        ui.add_space(14.0);
+
         ui.group(|ui| {
             ui.heading(Strings::lang_section_title(lang));
             ui.label(
@@ -2687,6 +2948,224 @@ impl Em624App {
                     self.config.save();
                 }
             });
+        });
+
+        ui.add_space(12.0);
+        ui.group(|ui| {
+            ui.heading(Strings::window_resize_title(lang));
+            ui.label(
+                egui::RichText::new(Strings::window_resize_desc(lang)).color(pal.text_secondary),
+            );
+            ui.add_space(8.0);
+
+            let mut free_res = self.config.free_window_resize;
+            if ui
+                .checkbox(&mut free_res, Strings::window_resize_toggle(lang))
+                .on_hover_text(
+                    "When checked, unlocks window constraints and removes minimum boundary clamping, allowing free arbitrary resizing without aspect-ratio locks.",
+                )
+                .changed()
+            {
+                self.toggle_free_window_resize(ui.ctx(), free_res);
+            }
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Quick Sizing Presets:")
+                        .small()
+                        .color(pal.text_secondary),
+                );
+                if ui.button(Strings::window_size_default_btn(lang)).clicked() {
+                    self.set_window_size_preset(ui.ctx(), 880.0, 640.0);
+                }
+                if ui.button(Strings::window_size_compact_btn(lang)).clicked() {
+                    self.set_window_size_preset(ui.ctx(), 720.0, 520.0);
+                }
+                if ui.button(Strings::window_size_wide_btn(lang)).clicked() {
+                    self.set_window_size_preset(ui.ctx(), 1120.0, 740.0);
+                }
+            });
+        });
+
+        ui.add_space(12.0);
+        ui.group(|ui| {
+            ui.heading(Strings::font_section_title(lang));
+            ui.label(
+                egui::RichText::new(Strings::font_section_desc(lang)).color(pal.text_secondary),
+            );
+            ui.add_space(8.0);
+
+            let active_font = self
+                .config
+                .custom_font_name
+                .as_deref()
+                .unwrap_or("Dosis-Bold (Default)");
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new(Strings::current_font_label(lang)).strong());
+                ui.label(
+                    egui::RichText::new(active_font)
+                        .strong()
+                        .color(pal.accent),
+                );
+            });
+            ui.add_space(6.0);
+
+            ui.horizontal(|ui| {
+                ui.label(Strings::font_input_label(lang));
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut self.font_input_name)
+                        .desired_width(200.0)
+                        .hint_text("e.g. Inter, Roboto, Montserrat..."),
+                );
+                if resp.changed() {
+                    self.font_check_state = crate::font_service::FontCheckState::Idle;
+                }
+
+                ui.label(Strings::font_source_label(lang));
+                egui::ComboBox::from_id_source("cloud_font_source_selector")
+                    .selected_text(self.font_source_option.display_name())
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.font_source_option,
+                            crate::font_service::FontSourceOption::Auto,
+                            "Auto (Google Fonts + Fontshare)",
+                        );
+                        ui.selectable_value(
+                            &mut self.font_source_option,
+                            crate::font_service::FontSourceOption::GoogleFonts,
+                            "Google Fonts (1500+ fonts)",
+                        );
+                        ui.selectable_value(
+                            &mut self.font_source_option,
+                            crate::font_service::FontSourceOption::Fontshare,
+                            "Fontshare (Free Quality Fonts)",
+                        );
+                    });
+            });
+
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.label(
+                    egui::RichText::new("Quick Test Presets:")
+                        .small()
+                        .color(pal.text_secondary),
+                );
+                for (name, src) in [
+                    ("Inter", crate::font_service::FontSourceOption::GoogleFonts),
+                    ("Roboto", crate::font_service::FontSourceOption::GoogleFonts),
+                    ("Fira Code", crate::font_service::FontSourceOption::GoogleFonts),
+                    ("General Sans", crate::font_service::FontSourceOption::Fontshare),
+                    ("Satoshi", crate::font_service::FontSourceOption::Fontshare),
+                    ("Montserrat", crate::font_service::FontSourceOption::GoogleFonts),
+                ] {
+                    if ui.small_button(name).clicked() {
+                        self.font_input_name = name.to_string();
+                        self.font_source_option = src;
+                        self.start_font_verification();
+                    }
+                }
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                let is_checking = matches!(
+                    self.font_check_state,
+                    crate::font_service::FontCheckState::Checking(_)
+                );
+                let can_verify = !is_checking && !self.font_input_name.trim().is_empty();
+
+                if ui
+                    .add_enabled(
+                        can_verify,
+                        egui::Button::new(icon_label_spaced(
+                            Icons::SEARCH,
+                            Strings::verify_font_btn(lang),
+                            6.0,
+                        )),
+                    )
+                    .clicked()
+                {
+                    self.start_font_verification();
+                }
+
+                let is_available = matches!(
+                    self.font_check_state,
+                    crate::font_service::FontCheckState::Available(_)
+                );
+
+                let apply_btn = egui::Button::new(icon_label_spaced(
+                    Icons::CHECK,
+                    Strings::apply_font_btn(lang),
+                    6.0,
+                ))
+                .fill(if is_available {
+                    pal.accent
+                } else {
+                    Color32::from_rgb(45, 45, 45)
+                });
+
+                if ui.add_enabled(is_available, apply_btn).clicked() {
+                    if let crate::font_service::FontCheckState::Available(ref verified) =
+                        self.font_check_state.clone()
+                    {
+                        self.apply_verified_font(ui.ctx(), verified);
+                    }
+                }
+
+                if ui.button(Strings::reset_font_btn(lang)).clicked() {
+                    self.reset_to_default_font(ui.ctx());
+                }
+            });
+
+            ui.add_space(6.0);
+            match &self.font_check_state {
+                crate::font_service::FontCheckState::Idle => {
+                    ui.label(
+                        egui::RichText::new(
+                            "Enter a font name and click 'Verify Font' to check remote availability.",
+                        )
+                        .small()
+                        .color(pal.text_secondary),
+                    );
+                }
+                crate::font_service::FontCheckState::Checking(name) => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(
+                            egui::RichText::new(format!(
+                                "Querying public font repositories for '{}'...",
+                                name
+                            ))
+                            .color(Color32::from_rgb(255, 200, 80)),
+                        );
+                    });
+                }
+                crate::font_service::FontCheckState::Available(verified) => {
+                    ui.label(
+                        egui::RichText::new(format!(
+                            "[OK] Verified valid TrueType font '{}' from {} ({} KB). Click 'Apply Font' to activate.",
+                            verified.display_name, verified.source_name, verified.file_size_kb
+                        ))
+                        .strong()
+                        .color(Color32::from_rgb(46, 213, 115)),
+                    );
+                }
+                crate::font_service::FontCheckState::NotFound(msg) => {
+                    ui.label(
+                        egui::RichText::new(format!("[!] Font unavailable: {}", msg))
+                            .color(Color32::from_rgb(255, 71, 87))
+                            .strong(),
+                    );
+                }
+                crate::font_service::FontCheckState::Error(err) => {
+                    ui.label(
+                        egui::RichText::new(format!("[!] Error: {}", err))
+                            .color(Color32::from_rgb(255, 71, 87))
+                            .strong(),
+                    );
+                }
+            }
         });
 
         ui.add_space(12.0);

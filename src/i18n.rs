@@ -401,4 +401,150 @@ impl Strings {
             Language::Vietnamese => "Kho lưu trữ GitHub:",
         }
     }
+
+    pub fn active_dev_warning_title(lang: Language) -> &'static str {
+        match lang {
+            Language::English => {
+                "CAUTION: ACTIVE DRIVER DEVELOPMENT & HARDWARE REVERSE-ENGINEERING"
+            }
+            Language::Vietnamese => "CẢNH BÁO: ĐANG TRONG GIAI ĐOẠN PHÁT TRIỂN & DỊCH NGƯỢC DRIVER",
+        }
+    }
+
+    pub fn active_dev_warning_body(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "This app is still in active development. Some issues like lack of full functionality, mouse malfunctions, or being off in terms of orientations are actually observed and can happen on current builds after pushing configs to the mouse. You have been warned.",
+            Language::Vietnamese => "Ứng dụng này đang trong quá trình phát triển tích cực. Một số vấn đề như chưa hoàn thiện đầy đủ chức năng, chuột hoạt động bất thường hoặc bị lệch/đảo hướng di chuyển đã thực sự được ghi nhận và có thể xảy ra trên các bản dựng hiện tại sau khi nạp cấu hình vào chuột. Bạn đã được cảnh báo trước.",
+        }
+    }
+
+    pub fn active_dev_mitigation_title(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Hardware Recovery & Safety Guidelines:",
+            Language::Vietnamese => "Hướng dẫn khắc phục sự cố & An toàn phần cứng:",
+        }
+    }
+
+    pub fn active_dev_mitigation_axes(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "• Inverted / Swapped Sensor Tracking: The driver enforces standard 180° PCB orientation (0x0006 = 0x7F). If optical tracking is flipped or inverted, click 'Calibrate & Fix Sensor Tracking Orientation' in the Safety section below.",
+            Language::Vietnamese => "• Lộn trục / Sai hướng cảm biến: Driver khóa chuẩn góc xoay 180° PCB (0x0006 = 0x7F). Nếu chuột bị đảo chiều, bấm nút 'Khôi phục hướng di chuột cảm biến' ở mục An toàn bên dưới.",
+        }
+    }
+
+    pub fn active_dev_mitigation_buttons(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "• Unresponsive Buttons: If custom keybinds cause dead clicks, unplug USB for 5s to trigger MCU power-cycle, or run CLI reset: cargo run -- apply-profile exampleProfiles/DailyUse.em624",
+            Language::Vietnamese => "• Nút bấm không phản hồi: Nếu gán nút bị đơ click, rút cáp USB 5 giây để vi điều khiển khởi động lại, hoặc khôi phục mặc định bằng: cargo run -- apply-profile exampleProfiles/DailyUse.em624",
+        }
+    }
+
+    pub fn active_dev_mitigation_s6(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "• MCU Deadlock Protection: Stage 6 DPI remains locked by default (allow_stage_6 = false) to prevent Sunplus MCU interrupt deadlock.",
+            Language::Vietnamese => "• Tránh treo MCU: Mức DPI 6 được khóa mặc định (allow_stage_6 = false) để ngăn vi điều khiển Sunplus bị treo ngắt phần cứng.",
+        }
+    }
+
+    pub fn font_section_title(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Typography & Application Font",
+            Language::Vietnamese => "Phông chữ & Kiểu chữ Giao diện",
+        }
+    }
+
+    pub fn font_section_desc(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Customize the application font. Type any font name from Google Fonts, Fontshare, or paste a direct TTF URL to verify and fetch from free public CDNs without server-side setups:",
+            Language::Vietnamese => "Tùy chỉnh phông chữ giao diện. Nhập tên phông chữ từ Google Fonts, Fontshare hoặc dán liên kết TTF trực tiếp để kiểm tra và tải từ các CDN công cộng miễn phí không cần máy chủ:",
+        }
+    }
+
+    pub fn current_font_label(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Active Font:",
+            Language::Vietnamese => "Phông chữ hiện tại:",
+        }
+    }
+
+    pub fn font_input_label(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Font Name / URL:",
+            Language::Vietnamese => "Tên phông / URL:",
+        }
+    }
+
+    pub fn font_source_label(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Cloud Repository:",
+            Language::Vietnamese => "Kho lưu trữ đám mây:",
+        }
+    }
+
+    pub fn verify_font_btn(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Verify Font",
+            Language::Vietnamese => "Kiểm tra phông",
+        }
+    }
+
+    pub fn apply_font_btn(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Apply Font",
+            Language::Vietnamese => "Áp dụng phông chữ",
+        }
+    }
+
+    pub fn reset_font_btn(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Reset to Default Font (Dosis)",
+            Language::Vietnamese => "Đặt lại phông mặc định (Dosis)",
+        }
+    }
+
+    pub fn window_resize_title(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Window Dimensions & Aspect Ratio Restrictions",
+            Language::Vietnamese => "Kích thước & Giới hạn Tỷ lệ Cửa sổ",
+        }
+    }
+
+    pub fn window_resize_desc(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Control window resizing constraints. Toggle between free unrestricted resizing and standard bounded proportions:",
+            Language::Vietnamese => "Kiểm soát giới hạn kích thước cửa sổ. Bật/tắt giữa chế độ tự do thu phóng và tỷ lệ tiêu chuẩn:",
+        }
+    }
+
+    pub fn window_resize_toggle(lang: Language) -> &'static str {
+        match lang {
+            Language::English => {
+                "Unlock Window Sizing Restrictions (Allow Free Resizing Without Minimum Bounds)"
+            }
+            Language::Vietnamese => {
+                "Bỏ khóa giới hạn kích thước cửa sổ (Cho phép tự do thu phóng mọi kích cỡ)"
+            }
+        }
+    }
+
+    pub fn window_size_default_btn(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Default Size (880 x 640)",
+            Language::Vietnamese => "Kích thước chuẩn (880 x 640)",
+        }
+    }
+
+    pub fn window_size_compact_btn(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Compact Size (720 x 520)",
+            Language::Vietnamese => "Kích thước gọn (720 x 520)",
+        }
+    }
+
+    pub fn window_size_wide_btn(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Wide Studio (1120 x 740)",
+            Language::Vietnamese => "Kích thước rộng (1120 x 740)",
+        }
+    }
 }

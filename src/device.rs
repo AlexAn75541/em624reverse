@@ -11,6 +11,7 @@ pub const REPORT_ID_DATA: u8 = 0x41;
 
 pub const CMD_START_WRITE: u8 = 0x07;
 pub const CMD_READ: u8 = 0x09;
+pub const CMD_APPLY_SETTINGS: u8 = 0x0D;
 pub const CMD_COMMIT_WRITE: u8 = 0x0E;
 
 pub const PROFILE_SIZE: usize = 2048;
@@ -209,6 +210,10 @@ impl Em624Device {
             sleep(Duration::from_millis(5));
         }
 
+        // Step 2.5: Soft-apply settings into MCU active registers (0x40, 0x0D)
+        // Matches official Delphi FlashMemoryWriteRoutine (0x005b7c8c / 0x005607f8)
+        let _ = self.apply_soft_reset();
+
         // Step 3: Commit flash write (0x40, 0x0E)
         let mut commit_cmd = [0u8; 8];
         commit_cmd[0] = REPORT_ID_CMD;
@@ -281,7 +286,7 @@ impl Em624Device {
     pub fn apply_soft_reset(&self) -> Result<()> {
         let mut cmd = [0u8; 8];
         cmd[0] = REPORT_ID_CMD;
-        cmd[1] = 0x0d;
+        cmd[1] = CMD_APPLY_SETTINGS;
         self.send_feature_report(&cmd)
             .context("Failed to send Apply/Soft-Reset command (0x40, 0x0D)")?;
         sleep(Duration::from_millis(15));
