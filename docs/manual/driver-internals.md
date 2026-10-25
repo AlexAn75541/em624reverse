@@ -216,3 +216,19 @@ RegisterRawInputDevices(&rid, 1, std::mem::size_of::<RAWINPUTDEVICE>() as u32);
 When packets arrive, the window procedure intercepts `WM_INPUT`, extracts `RAWINPUT`, and decodes raw physical button flags (`RI_MOUSE_BUTTON_1_DOWN` through `BUTTON_5_DOWN`, wheel deltas, and relative motion `lLastX`, `lLastY`).
 
 Run `em624-reversed listen` in terminal to run the sniffer!
+
+---
+
+## 8. Future Roadmap & UI/UX Inspiration: OpenMouse-Project
+
+As the `em624-driver` project matures, future UI/UX redesigns and hardware configurator enhancements will draw major inspiration from the **[OpenMouse-Project](https://github.com/OpenMouse-Project)**:
+
+- **Next-Gen Configurator UI Architecture**:
+  - Modular, component-driven configuration panels (motion tuning, multi-stage DPI, LOD adjustments).
+  - Real-time interactive vector hardware canvas tracking clicks, wheel movement, and live coordinates.
+  - Ergonomic design language focused on high-refresh-rate gaming monitors with instant tactile response.
+- **Sensor & Latency Telemetry Engine**:
+  - Real-time polling rate jitter graphs and USB interrupt timing measurements.
+  - Tracking latency benchmarking inspired by OpenMouse testing methodologies.
+- **Unified & Open Profile Formats**:
+  - Cross-device profile specifications and seamless export between open mouse driver ecosystems.

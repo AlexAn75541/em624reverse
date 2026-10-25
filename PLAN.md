@@ -128,3 +128,17 @@
 - **Proposed Solution**:
   1. Add `linuxdeploy` and `linuxdeploy-plugin-appimage` steps to `.github/workflows/ci.yml`.
   2. Bundle `libudev` and OpenGL shared libraries into a self-contained `.AppImage` executable.
+
+### 9. Future Roadmap & UI/UX Inspiration: OpenMouse-Project
+- **Reference**: [OpenMouse-Project](https://github.com/OpenMouse-Project) (Open-source mouse software, hardware, and configurator ecosystem)
+- **Key Inspirations & To-Do for EM624 Driver**:
+  1. **Next-Gen Configurator UI/UX**:
+     - Modern componentized layouts with responsive modular cards (DPI stages, polling monitors, LOD calibration).
+     - Interactive vector-based mouse topology canvas with real-time button click and coordinate feedback.
+     - Dark-mode ergonomic aesthetic tailored for high-refresh-rate displays and zero latency.
+  2. **Sensor & Latency Telemetry**:
+     - Real-time polling rate stability graphs (jitter analysis, actual report interval deltas).
+     - Motion tracking precision visualizer and input delay benchmarking inspired by OpenMouse tools.
+  3. **Universal Profile Architecture**:
+     - Cloud-synced, vendor-agnostic profile definitions with automatic export to open formats.
+     - Integration with community mouse tuning databases and standardized button action trees.

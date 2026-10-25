@@ -210,7 +210,8 @@ cargo run -- apply-profile exampleProfiles/DailyUse.em624
 
 ---
 
-## 9. Next Milestones
+## 9. Next Milestones & Future Inspirations
+- [ ] **UI/UX Redesign & Inspiration from OpenMouse**: Adopt modern, modular UI architecture and design inspiration from [OpenMouse-Project](https://github.com/OpenMouse-Project) (visual component hierarchy, hardware topology canvas, real-time sensor latency and motion telemetry displays).
 - [ ] Trace Lift-Off Distance (LOD) and hardware angle-snapping register offsets in SPCP6662 DSP.
 - [ ] Package cross-platform AppImage bundle for Linux desktop distributions.
 
