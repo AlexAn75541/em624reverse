@@ -17,128 +17,91 @@
 
 ### Milestone 1: Core Protocol & Hardware Recovery (COMPLETED)
 - [x] Identified Sunplus MCU VID (`0x1BCF`) and PID (`0x08B8`).
-- [x] Decompiled official Delphi executable (`EM624 Mouse.exe`, `TForm1` at `0x0059bc8c`, flash writer at `0x005b7c8c`).
+- [x] Decompiled official Delphi executable (`extracted/EM624 Mouse.exe`, `TForm1` at `0x0059bc8c`, flash writer at `0x005b888c`).
 - [x] Mapped USB HID Feature Report protocol (`0x40` commands, `0x41` 293-chunk streaming).
 - [x] Solved Stage 6 firmware lockup by clamping active stages mask (`&= 0xDF`).
 - [x] Discovered and fixed 5-sector hardware checksum engine (`(sum ^ 0x5A) & 0xFF`), especially Sector 0 at `0x00A3`.
-- [x] Clamped sensor calibration nibbles to valid range `<= 14` (`12,000 DPI`).
+- [x] Clamped sensor calibration nibbles to valid range `<= 14` (`10,000 DPI`).
 - [x] Mapped 7 physical switches and PCB routing to memory array slots.
+- [x] Solved Sensor Orientation / Axis Inversion: byte `0x0006` locked to `0x7F` (180° rotation).
 
 ### Milestone 2: Modern Native UI & Cross-Platform Tooling (COMPLETED)
-- [x] Built 100% offline native Rust GUI (`src/gui.rs`) with `eframe` (egui).
+- [x] Built 100% offline native Rust GUI (`src/gui.rs`) with `eframe` (egui) and OpenGL `glow`.
 - [x] Centered ergonomic mouse chassis visualization with badges `[1]` through `[7]` and proportional scaling.
 - [x] Interactive button remapper matching standard mouse software (Standard, Special, Media, Shortcuts).
-- [x] Advanced sensor tuning: 15 calibrated DPI steps up to 12,000 DPI, Stage 6 safety lock, interchangeable polling rates (`125Hz`, `250Hz`, `500Hz`, `1000Hz`).
-- [x] LED lighting controls (Breathing, Colorful, Rainbow, Flow, Waltz, 4-Seasons, Off) with speed & brightness.
-- [x] Fire Key and pointer/wheel speed settings.
-- [x] Embedded on-the-fly `.bin` profile converter into `.cache/` at load time.
-- [x] Static UI scaling presets (`100%`, `125%`, `150%`, `175%`, `200%`) in `.config/settings.json`.
-- [x] OS native terminal debug mode (`em624.exe log-viewer` read-only log monitor in dedicated console window).
-- [x] Pure GUI subsystem (`#![windows_subsystem = "windows"]`) preventing console popups on launch.
-- [x] Multi-resolution icon (`assets/em624.ico`) embedded into `.exe` via `build.rs` and `winres`.
-- [x] Bilingual English & Vietnamese translations with dynamic OS font loading (`configure_fonts`).
+- [x] Mode-synchronized button flashing: dual table sync (`0x00C0` Office & `0x00F1` Gaming) + `0x00A4` active mode byte.
+- [x] Advanced sensor tuning: 14 calibrated DPI steps up to 10,000 DPI, Stage 6 safety lock, interchangeable polling rates (`125Hz`, `250Hz`, `500Hz`, `1000Hz`).
+- [x] Cloud typography service with Google Fonts and Fontshare verification and disk caching.
+- [x] Free window resizing and dimension presets in settings.
+- [x] Bilingual English & Vietnamese translations.
 - [x] Cross-platform GitHub Actions CI/CD building clean `.zip` releases (zero `.md` files) for Windows and Linux.
 
 ### Milestone 3: Memory Footprint Optimization (<10MB RAM Target) (COMPLETED)
 - [x] Replaced default DirectX 12 (`wgpu`) backend with lightweight OpenGL (`glow`), eliminating ~50MB of D3D12/DXGI driver runtime state.
-- [x] Implemented Win32 working set trimming (`HeapCompact` + `K32EmptyWorkingSet` + `SetProcessWorkingSetSize`), flushing cold pages periodically and after major UI transitions.
-- [x] Downsampled chassis texture to exact 320x340 rendered dimensions, reducing texture memory by >1MB.
+- [x] Implemented Win32 working set trimming (`HeapCompact` + `K32EmptyWorkingSet` + `SetProcessWorkingSetSize`) and Linux `malloc_trim`.
 - [x] Verified working set profile: GUI runs within ~5-8MB RAM on Windows and Linux, strictly within the <= 10MB budget.
 
 ### Milestone 4: Interactive Hardware Sniffing & Input Listener (COMPLETED)
-- [x] Added `em624 listen` (alias `sniff`) CLI subcommand to observe mouse hardware events in real time.
+- [x] Added `em624-reversed listen` (alias `sniff`) CLI subcommand to observe mouse hardware events in real time.
 - [x] Switched Windows listener to Windows Raw Input subsystem (`RegisterRawInputDevices` with `RIDEV_INPUTSINK`), bypassing the exclusive lock of `mouhid.sys`.
-- [x] Simultaneously listens to `MI_00` (mouse movement, clicks, wheel) and `MI_01` (hotkeys, consumer media, system reports).
 - [x] Decodes raw bytes into button names, delta X/Y, wheel steps, and HID usages for live verification of profile behavior.
 
 ---
 
-## Detailed Technical Solutions for Unfinished Features (Backlog)
+## Action Plan: Completing Unfinished Features
 
 ```
-                         E-DRA EM624 ROADMAP
-                                  │
-         ┌────────────────────────┼────────────────────────┐
-         ▼                        ▼                        ▼
-┌──────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-│ Mode Switching   │    │ Stage 6 & Sensor │    │ Macro Engine     │
-│ Solution: USB    │    │ Solution: DSP    │    │ Solution: Win32/ │
-│ bus packet trace │    │ register mapping │    │ evdev hook +     │
-│ & RAM soft-reset │    │ & stage cycle SM │    │ EEPROM 0x0400    │
-└──────────────────┘    └──────────────────┘    └──────────────────┘
+                         UNFINISHED FEATURES ROADMAP
+                                     │
+         ┌───────────────────────────┼───────────────────────────┐
+         ▼                           ▼                           ▼
+┌──────────────────┐       ┌──────────────────┐        ┌──────────────────┐
+│ Phase 1: OS      │       │ Phase 2: Rapid   │        │ Phase 3: Macro   │
+│ Mouse Dynamics   │       │ Fire Hardware    │        │ Bank & Upload    │
+│ Solution: Win32  │       │ Solution: EEPROM │        │ Solution: 272B   │
+│ SystemParameters │       │ 0x0122 & 0x0130  │        │ blocks to 0x01F0 │
+└──────────────────┘       └──────────────────┘        └──────────────────┘
 ```
 
-### 1. Solution: Live Mode Switching (Gaming 0x01 vs Office 0x00)
-- **Feasibility**: High (Agentic Workaround Active).
-- **Status**: The driver updates byte `0x00A4` and flashes the profile to hardware via standard commit (`0x40 0x07` + chunks + `0x40 0x0E`), which reliably switches the mode with complete hardware compliance.
+### Phase 1: Connect OS-Level Mouse Dynamics (Advanced Tab)
+1. **Windows System Parameters Synchronization**:
+   - In `src/platform/windows.rs`, add functions:
+     - `get_mouse_speed() -> u32` / `set_mouse_speed(val: u32)` (`SPI_GETMOUSESPEED`, `SPI_SETMOUSESPEED` range 1..20).
+     - `get_double_click_time() -> u32` / `set_double_click_time(ms: u32)` (`GetDoubleClickTime`, `SetDoubleClickTime`).
+     - `get_wheel_scroll_lines() -> u32` / `set_wheel_scroll_lines(lines: u32)` (`SPI_SETWHEELSCROLLLINES`).
+     - `get_pointer_precision() -> bool` / `set_pointer_precision(enabled: bool)` (`SPI_SETMOUSE`).
+2. **GUI Hookup**:
+   - Query OS values on GUI startup and populate sliders.
+   - When user adjusts sliders or clicks "Apply", call the OS setters.
+3. **Badge Removal**:
+   - Remove `[UNFINISHED]` badge from `render_advanced_tab` in `src/gui.rs` and `src/i18n.rs`.
 
-### 2. Solution: Optical Sensor Orientation & Inversion Fix
-- **Feasibility**: 100% Solved & Verified.
-- **Root Cause Discovered via Assembly Analysis**:
-  - Delphi assembly at `0x0056ddf8` (`cb_SensorRotationChange`) confirmed byte `0x0006` is a bitfield where bits 7..6 configure the DSP axis rotation:
-    - `00` (`0x00`): 270° rotation.
-    - `01` (`0x40`): 180° rotation (Normal physical PCB sensor mounting orientation for EM624 chassis).
-    - `10` (`0x80`): 90° rotation.
-    - `11` (`0xC0`): 0° rotation.
-  - In all factory dumps and working `.bin` profiles, byte `0x0006` is `127` (`0x7F`, bits 7..6 = `01`).
-  - Previously, byte `0x0006` was mistakenly set to `0x00`, turning bits 7..6 to `00` (270°), which rotated tracking 90° out-of-phase and inverted the X and Y axes.
-- **Definitive Fix**:
-  1. Profile parser strictly locks `raw[0x0006] = 0x7F` and `raw[0x0007] = 0x7F` in `apply_safe_profile()`, `apply_standard_buttons()`, and `apply_og_compat()`.
-  2. Added an on-demand emergency repair button in App Settings (`Calibrate & Fix Sensor Tracking Orientation`) and a CLI command (`em624-reversed fix-orientation`) to calibrate and flash orientation to hardware immediately.
+### Phase 2: Hardware Rapid Fire Key (EEPROM `0x0122` & `0x0130`)
+1. **Profile Byte Layout**:
+   - Disassembly of `Btn_FireConfirmClick` (VA `0x005aaaa8`) proved Fire Key is stored in:
+     - `0x0122..0x012D` (12 bytes): repeat count, interval delay, and mode.
+     - `0x0130..0x01D7` (168 bytes): compiled macro bytecode.
+2. **Implementation**:
+   - Stop writing dummy values to `0x0010..0x0013`.
+   - In `src/profile.rs`, add `set_fire_key(repeat_count: u8, interval_ms: u16, continuous: bool)`.
+   - Compile left-down (`0xa1`), delay (`0xfe`), left-up (`0x21`), delay, terminate (`0xfc`) bytecode into `raw[0x0130..]`.
+3. **Button Remap**:
+   - Map Button 7 (Top Wing Switch) default action to Fire Key bytecode trigger (`0x06 0x00 0x00 0x00`).
 
-### 3. Solution: Stage 6 DPI Firmware Deadlock & Sensor Trapping
-- **Feasibility**: Solved via Hardware Safety Clamp.
-- **Root Cause**: The SPCP6662 optical sensor lookup table in the MCU firmware has exactly 5 calibrated step registers (`0..4`). Cycling the physical button into stage 6 (`bit 5 = 1`) executes an unmapped firmware branch that traps the interrupt handler.
-- **Definitive Fix**: Hard-clamped `active_stages_mask &= 0xDF` with optional research toggle in App Settings.
+### Phase 3: Macro Manager UI Recording & EEPROM Flashing
+1. **Input Recording Hook**:
+   - Windows: Low-level keyboard hook (`SetWindowsHookExW(WH_KEYBOARD_LL)`) and mouse hook (`WH_MOUSE_LL`) during recording.
+   - Linux: Read events from `/dev/input/event*` or X11/Wayland event stream.
+2. **EEPROM Flashing Workflow**:
+   - Disassembly of `Btn_SaveMacroClick` (VA `0x00591ea0`) verified:
+     - Macro Slot 1 flashes to offset `0x01F0` (328 bytes).
+     - Macro Slot 2 flashes to offset `0x0338` (328 bytes).
+     - Extended macro bank stored in `0x0400..0x07FF` (1024 bytes).
+3. **Badge Removal**:
+   - Remove `[UNFINISHED]` badge from `render_macro_tab` in `src/gui.rs` and `src/i18n.rs`.
 
-### 4. Solution: Macro Manager Live Recording Hooks & EEPROM Write
-- **Feasibility**: High (Agentic Implementation in Progress).
-- **Proposed Solution**:
-  1. Add low-level input recording hooks:
-     - **Windows**: `SetWindowsHookExW(WH_KEYBOARD_LL)` and `SetWindowsHookExW(WH_MOUSE_LL)` during recording mode.
-     - **Linux**: `evdev` event capture stream.
-  2. Convert captured keydown/keyup/clicks and timestamp deltas into `MacroAction` variants.
-  3. Implement `write_macro_bank(&self, data: &[u8])` in `src/device.rs`:
-     - Send Report `0x40 0x07` with offset `0x0400` and length `0x0400` (1024 bytes).
-     - Stream 147 data chunks (Report `0x41`).
-     - Transmit Commit `0x40 0x0E`.
-
-### 5. Solution: Advanced Pointer & Fire Key Hardware Registers
-- **Feasibility**: High.
-- **Proposed Solution**:
-  1. Run `em624-reversed listen` while moving the mouse at a constant velocity with byte `0x0014` set to `1` vs `11`.
-  2. Measure continuous fire click intervals from raw HID Input Reports (`MI_00`) to confirm on-chip hardware timer autonomy.
-
-### 6. Solution: Custom LED Lighting Curves & User Color Palettes
-- **Feasibility**: High.
-- **Proposed Solution**:
-  1. Decompile `TForm_Color` (`DFM` offset `0x3c5120`). Trace where RGB values are copied when closing the modal.
-  2. Verify if custom palettes are stored in bytes `0x003C..0x0053` (currently mapped as DPI stage colors) or in the padding zone `0x0130..0x01D8`.
-  3. Map transition timing coefficients for speeds 1 through 5.
-
-### 7. Solution: Advanced Optical Sensor DSP Tuning (SPCP6662)
-- **Feasibility**: Medium.
-- **Proposed Solution**:
-  1. Trace function calls around `Adjust_XY_Option` (`0x0059b432`) in `EM624 Mouse.exe`.
-  2. Decompile the initialization packet sequence in `FlashMemoryWriteRoutine` (`0x005b7c8c`).
-  3. Map register offsets and provide sliders for LOD cutoff height and angle-snapping tolerance.
-
-### 8. Solution: Linux Single-File AppImage Distribution
-- **Feasibility**: High (CI Packaging).
-- **Proposed Solution**:
-  1. Add `linuxdeploy` and `linuxdeploy-plugin-appimage` steps to `.github/workflows/ci.yml`.
-  2. Bundle `libudev` and OpenGL shared libraries into a self-contained `.AppImage` executable.
-
-### 9. Future Roadmap & UI/UX Inspiration: OpenMouse-Project
-- **Reference**: [OpenMouse-Project](https://github.com/OpenMouse-Project) (Open-source mouse software, hardware, and configurator ecosystem)
-- **Key Inspirations & To-Do for EM624 Driver**:
-  1. **Next-Gen Configurator UI/UX**:
-     - Modern componentized layouts with responsive modular cards (DPI stages, polling monitors, LOD calibration).
-     - Interactive vector-based mouse topology canvas with real-time button click and coordinate feedback.
-     - Dark-mode ergonomic aesthetic tailored for high-refresh-rate displays and zero latency.
-  2. **Sensor & Latency Telemetry**:
-     - Real-time polling rate stability graphs (jitter analysis, actual report interval deltas).
-     - Motion tracking precision visualizer and input delay benchmarking inspired by OpenMouse tools.
-  3. **Universal Profile Architecture**:
-     - Cloud-synced, vendor-agnostic profile definitions with automatic export to open formats.
-     - Integration with community mouse tuning databases and standardized button action trees.
+### Phase 4: LED Lighting Tab Finalization
+1. **Verification**:
+   - Lighting mode `0x0018` (0=Breathing..6=Off) and brightness `0x0008` (0=Full, 1=Half) are already fully functional.
+2. **Badge Removal**:
+   - Remove `[UNFINISHED]` badge from `render_led_tab` in `src/gui.rs` and `src/i18n.rs`.

@@ -560,6 +560,75 @@ impl MouseProfile {
         self.refresh_stages();
     }
 
+    /// Sync Fire Key settings and compile rapid fire macro bytecode into profile registers:
+    /// - 0x0010..0x0013: mirror registers
+    /// - 0x0122..0x012D: 12-byte Fire parameter record (repeat count, burst interval, loop mode)
+    /// - 0x0130..0x01D7: 168-byte compiled rapid fire bytecode (Left Down, Delay, Left Up, Delay, Terminate)
+    pub fn set_fire_key(&mut self, mode: u8, repeat: u8, interval: u8, continuous: bool) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+
+        // Mirror registers
+        self.raw[0x0010] = mode;
+        self.raw[0x0011] = repeat;
+        self.raw[0x0012] = interval;
+        self.raw[0x0013] = if continuous { 1 } else { 0 };
+
+        // Dedicated hardware fire parameters at 0x0122..0x012D
+        self.raw[0x0122] = mode;
+        self.raw[0x0123] = repeat.clamp(1, 100);
+        self.raw[0x0124] = interval.max(5);
+        self.raw[0x0125] = 0x00;
+        self.raw[0x0126] = if continuous { 1 } else { 0 };
+        self.raw[0x0127..=0x012d].fill(0);
+
+        // Dedicated rapid fire macro bytecode at 0x0130..0x01D7 (168 bytes)
+        // [0xa1 (Left Down), 0xfe, 0x00, interval, 0x21 (Left Up), 0xfe, 0x00, interval, 0xfc (Terminate)]
+        let delay_ms = interval.max(5);
+        let mut seq = [0u8; 168];
+        seq[0] = 0xa1; // Left Down
+        seq[1] = 0xfe; // Delay
+        seq[2] = 0x00;
+        seq[3] = delay_ms;
+        seq[4] = 0x21; // Left Up
+        seq[5] = 0xfe; // Delay
+        seq[6] = 0x00;
+        seq[7] = delay_ms;
+        seq[8] = 0xfc; // Terminate
+
+        self.raw[0x0130..0x0130 + 168].copy_from_slice(&seq);
+        self.recalculate_checksums();
+    }
+
+    /// Write compiled macro bytecode into profile onboard macro regions:
+    /// - slot 0 -> 0x01F0..0x0337 (328 bytes)
+    /// - slot 1 -> 0x0338..0x047F (328 bytes)
+    /// - also mirrors into extended bytecode area 0x0400..0x07FF
+    pub fn write_macro_bytecode(&mut self, slot: usize, bytecode: &[u8]) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+
+        let len = bytecode.len().min(256);
+        let target_offset = match slot {
+            0 => 0x01f0,
+            _ => 0x0338,
+        };
+
+        if target_offset + len <= PROFILE_SIZE {
+            self.raw[target_offset..target_offset + len].copy_from_slice(&bytecode[..len]);
+        }
+
+        // Mirror into extended macro bank at 0x0400
+        let ext_offset = 0x0400 + (slot * 256);
+        if ext_offset + len <= PROFILE_SIZE {
+            self.raw[ext_offset..ext_offset + len].copy_from_slice(&bytecode[..len]);
+        }
+
+        self.recalculate_checksums();
+    }
+
     /// Check if the button configuration matches verified working standard mouse clicks
     #[allow(dead_code)]
     pub fn is_button_table_valid(&self) -> bool {
@@ -743,5 +812,46 @@ mod tests {
             profile.raw[0x0006], 0x7f,
             "Sensor orientation must be 0x7F in standard profile"
         );
+    }
+
+    #[test]
+    fn test_set_fire_key_compilation() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let mut profile = MouseProfile::from_bytes(baseline).unwrap();
+
+        profile.set_fire_key(1, 5, 25, true);
+
+        // Mirror registers
+        assert_eq!(profile.raw[0x0010], 1);
+        assert_eq!(profile.raw[0x0011], 5);
+        assert_eq!(profile.raw[0x0012], 25);
+        assert_eq!(profile.raw[0x0013], 1);
+
+        // Hardware fire parameters (0x0122..0x012D)
+        assert_eq!(profile.raw[0x0122], 1);
+        assert_eq!(profile.raw[0x0123], 5);
+        assert_eq!(profile.raw[0x0124], 25);
+        assert_eq!(profile.raw[0x0126], 1);
+
+        // Hardware bytecode (0x0130..)
+        assert_eq!(profile.raw[0x0130], 0xa1); // Left Down
+        assert_eq!(profile.raw[0x0131], 0xfe); // Delay
+        assert_eq!(profile.raw[0x0133], 25); // 25ms
+        assert_eq!(profile.raw[0x0134], 0x21); // Left Up
+        assert_eq!(profile.raw[0x0135], 0xfe); // Delay
+        assert_eq!(profile.raw[0x0137], 25); // 25ms
+        assert_eq!(profile.raw[0x0138], 0xfc); // Terminate
+    }
+
+    #[test]
+    fn test_write_macro_bytecode() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let mut profile = MouseProfile::from_bytes(baseline).unwrap();
+
+        let dummy_code = [0x82, 0x04, 0xfe, 0x00, 0x32, 0x02, 0x04, 0xfc];
+        profile.write_macro_bytecode(0, &dummy_code);
+
+        assert_eq!(&profile.raw[0x01f0..0x01f8], &dummy_code);
+        assert_eq!(&profile.raw[0x0400..0x0408], &dummy_code);
     }
 }

@@ -1,4 +1,4 @@
-use super::DeviceStatus;
+use super::{DeviceStatus, OsMouseSettings};
 use anyhow::{bail, Result};
 use hidapi::HidApi;
 use std::os::windows::process::CommandExt;
@@ -7,6 +7,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{HANDLE, HWND, LPARAM};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetDoubleClickTime, SetDoubleClickTime};
 use windows_sys::Win32::UI::Input::{
     GetRawInputData, GetRawInputDeviceInfoW, RegisterRawInputDevices, HRAWINPUT, RAWINPUT,
     RAWINPUTDEVICE, RAWINPUTHEADER, RIDEV_INPUTSINK, RIDI_DEVICENAME, RID_INPUT, RIM_TYPEKEYBOARD,
@@ -14,7 +15,9 @@ use windows_sys::Win32::UI::Input::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DestroyWindow, DispatchMessageW, MsgWaitForMultipleObjectsEx, PeekMessageW,
-    TranslateMessage, HWND_MESSAGE, MSG, PM_REMOVE, QS_ALLINPUT, WM_INPUT,
+    SystemParametersInfoW, TranslateMessage, HWND_MESSAGE, MSG, PM_REMOVE, QS_ALLINPUT,
+    SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SPI_GETMOUSE, SPI_GETMOUSESPEED, SPI_GETWHEELSCROLLLINES,
+    SPI_SETMOUSE, SPI_SETMOUSESPEED, SPI_SETWHEELSCROLLLINES, WM_INPUT,
 };
 
 use crate::device::Em624Device;
@@ -79,6 +82,95 @@ pub fn set_console_title(title: &str) {
         }
         let _ = SetConsoleTitleW(wide.as_ptr());
     }
+}
+
+pub fn get_os_mouse_settings() -> OsMouseSettings {
+    let mut pointer_speed: u32 = 10;
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETMOUSESPEED,
+            0,
+            &mut pointer_speed as *mut u32 as *mut _,
+            0,
+        );
+    }
+    if pointer_speed == 0 || pointer_speed > 20 {
+        pointer_speed = 10;
+    }
+
+    let mut mouse_params = [0i32; 3];
+    unsafe {
+        SystemParametersInfoW(SPI_GETMOUSE, 0, mouse_params.as_mut_ptr() as *mut _, 0);
+    }
+    let enhance_precision = mouse_params[2] != 0;
+
+    let double_click_speed = unsafe { GetDoubleClickTime() };
+
+    let mut scroll_lines: u32 = 3;
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETWHEELSCROLLLINES,
+            0,
+            &mut scroll_lines as *mut u32 as *mut _,
+            0,
+        );
+    }
+    let scroll_one_screen = scroll_lines == u32::MAX;
+    let rolling_speed = if scroll_one_screen {
+        3
+    } else {
+        scroll_lines.clamp(1, 100)
+    };
+
+    OsMouseSettings {
+        pointer_speed,
+        enhance_precision,
+        double_click_speed,
+        rolling_speed,
+        scroll_one_screen,
+    }
+}
+
+pub fn apply_os_mouse_settings(settings: &OsMouseSettings) -> Result<()> {
+    unsafe {
+        // 1. Pointer Speed (1..=20)
+        let speed = settings.pointer_speed.clamp(1, 20);
+        SystemParametersInfoW(
+            SPI_SETMOUSESPEED,
+            0,
+            speed as *mut _,
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
+        );
+
+        // 2. Enhance Pointer Precision (Acceleration)
+        let mut mouse_params = [0i32; 3];
+        SystemParametersInfoW(SPI_GETMOUSE, 0, mouse_params.as_mut_ptr() as *mut _, 0);
+        mouse_params[2] = if settings.enhance_precision { 1 } else { 0 };
+        SystemParametersInfoW(
+            SPI_SETMOUSE,
+            0,
+            mouse_params.as_mut_ptr() as *mut _,
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
+        );
+
+        // 3. Double Click Time
+        let dbl_time = settings.double_click_speed.clamp(100, 1000);
+        SetDoubleClickTime(dbl_time);
+
+        // 4. Wheel Scroll Lines
+        let lines = if settings.scroll_one_screen {
+            u32::MAX
+        } else {
+            settings.rolling_speed.clamp(1, 100)
+        };
+        SystemParametersInfoW(
+            SPI_SETWHEELSCROLLLINES,
+            lines,
+            null_mut(),
+            SPIF_UPDATEINIFILE | SPIF_SENDCHANGE,
+        );
+    }
+    Ok(())
 }
 
 pub fn start_device_monitor() -> Receiver<DeviceStatus> {

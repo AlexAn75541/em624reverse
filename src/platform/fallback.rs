@@ -1,4 +1,4 @@
-use super::DeviceStatus;
+use super::{DeviceStatus, OsMouseSettings};
 use anyhow::{bail, Result};
 use hidapi::HidApi;
 use std::sync::mpsc::{channel, Receiver};
@@ -21,6 +21,20 @@ pub fn spawn_debug_terminal(log_path: Option<&std::path::Path>) {
 }
 
 pub fn set_console_title(_title: &str) {}
+
+pub fn get_os_mouse_settings() -> OsMouseSettings {
+    OsMouseSettings {
+        pointer_speed: 10,
+        enhance_precision: true,
+        double_click_speed: 500,
+        rolling_speed: 3,
+        scroll_one_screen: false,
+    }
+}
+
+pub fn apply_os_mouse_settings(_settings: &OsMouseSettings) -> Result<()> {
+    Ok(())
+}
 
 pub fn start_device_monitor() -> Receiver<DeviceStatus> {
     let (tx, rx) = channel();

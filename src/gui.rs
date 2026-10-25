@@ -305,6 +305,26 @@ impl Default for Em624App {
         let custom_dir_input = config.custom_data_dir.clone().unwrap_or_default();
         let custom_font_name = config.custom_font_name.clone();
 
+        let os_settings = crate::platform::get_os_mouse_settings();
+        let pointer_speed = match os_settings.pointer_speed {
+            1..=2 => 1,
+            3..=4 => 2,
+            5..=6 => 3,
+            7..=8 => 4,
+            9 => 5,
+            10 => 6,
+            11..=12 => 7,
+            13..=14 => 8,
+            15..=16 => 9,
+            17..=18 => 10,
+            _ => 11,
+        };
+        let double_click_speed =
+            (11 - ((os_settings.double_click_speed.clamp(200, 900) - 200) * 10 / 700)).clamp(1, 11);
+        let rolling_speed = os_settings.rolling_speed.clamp(1, 11);
+        let scroll_one_screen = os_settings.scroll_one_screen;
+        let pointer_precision = os_settings.enhance_precision;
+
         let app = Self {
             config,
             profile,
@@ -326,11 +346,11 @@ impl Default for Em624App {
             fire_repeat: 3,
             fire_interval: 30,
             fire_continuous: false,
-            pointer_speed: 6,
-            pointer_precision: true,
-            double_click_speed: 7,
-            rolling_speed: 3,
-            scroll_one_screen: false,
+            pointer_speed,
+            pointer_precision,
+            double_click_speed,
+            rolling_speed,
+            scroll_one_screen,
             polling_rate_idx: 3, // 1000 Hz default
             led_speed: 3,
             led_mode: 1,       // Colorful
@@ -732,20 +752,61 @@ impl Em624App {
         self.profile.raw[0x0018] = self.led_mode as u8;
         self.profile.raw[0x0008] = self.led_brightness as u8;
 
-        // Sync Fire Key configuration (offsets 0x0010..0x0013)
-        self.profile.raw[0x0010] = self.fire_mode as u8;
-        self.profile.raw[0x0011] = self.fire_repeat as u8;
-        self.profile.raw[0x0012] = self.fire_interval as u8;
-        self.profile.raw[0x0013] = if self.fire_continuous { 1 } else { 0 };
+        // Sync Fire Key configuration and compile rapid fire bytecode
+        self.profile.set_fire_key(
+            self.fire_mode as u8,
+            self.fire_repeat as u8,
+            self.fire_interval as u8,
+            self.fire_continuous,
+        );
 
-        // Sync Pointer & Scrolling Speeds (offsets 0x0014..0x0017)
-        self.profile.raw[0x0014] = self.pointer_speed as u8;
-        self.profile.raw[0x0015] = if self.pointer_precision { 1 } else { 0 };
-        self.profile.raw[0x0016] = self.double_click_speed as u8;
-        self.profile.raw[0x0017] = self.rolling_speed as u8;
+        // Sync OS mouse dynamics (Pointer Speed, Double Click, Wheel Scroll Lines)
+        self.apply_live_os_mouse_settings();
 
         // Recalculate checksums across all 5 sectors
         self.profile.recalculate_checksums();
+    }
+
+    fn apply_live_os_mouse_settings(&mut self) {
+        let os_speed = match self.pointer_speed {
+            1 => 1,
+            2 => 3,
+            3 => 5,
+            4 => 7,
+            5 => 9,
+            6 => 10,
+            7 => 12,
+            8 => 14,
+            9 => 16,
+            10 => 18,
+            _ => 20,
+        };
+        let os_dbl_click = 900 - ((self.double_click_speed.clamp(1, 11) - 1) * 70);
+        let os_settings = crate::platform::OsMouseSettings {
+            pointer_speed: os_speed,
+            enhance_precision: self.pointer_precision,
+            double_click_speed: os_dbl_click,
+            rolling_speed: self.rolling_speed,
+            scroll_one_screen: self.scroll_one_screen,
+        };
+        if let Err(e) = crate::platform::apply_os_mouse_settings(&os_settings) {
+            self.log_debug(&format!(
+                "[OS_MOUSE] Failed to apply OS mouse settings: {}",
+                e
+            ));
+        } else {
+            self.log_debug(&format!(
+                "[OS_MOUSE] Applied settings: speed={}, precision={}, dbl_click={}ms, scroll_lines={}",
+                os_speed,
+                self.pointer_precision,
+                os_dbl_click,
+                if self.scroll_one_screen {
+                    0
+                } else {
+                    self.rolling_speed
+                }
+            ));
+        }
     }
 
     fn read_from_mouse(&mut self) {
@@ -2310,36 +2371,88 @@ impl Em624App {
                         ui.radio_value(&mut self.fire_mode, 2, "Mode 3");
                     });
                     ui.add_space(6.0);
+                    let mut fire_changed = false;
                     ui.horizontal(|ui| {
                         ui.label("Repeat Count:");
-                        ui.add(egui::Slider::new(&mut self.fire_repeat, 1..=20));
+                        if ui
+                            .add(egui::Slider::new(&mut self.fire_repeat, 1..=20))
+                            .changed()
+                        {
+                            fire_changed = true;
+                        }
                     });
                     ui.horizontal(|ui| {
                         ui.label("Interval (ms):");
-                        ui.add(egui::Slider::new(&mut self.fire_interval, 10..=100));
+                        if ui
+                            .add(egui::Slider::new(&mut self.fire_interval, 10..=100))
+                            .changed()
+                        {
+                            fire_changed = true;
+                        }
                     });
-                    ui.checkbox(&mut self.fire_continuous, "Continuous Fire");
+                    if ui.checkbox(&mut self.fire_continuous, "Continuous Fire").changed() {
+                        fire_changed = true;
+                    }
+                    if fire_changed {
+                        self.profile.set_fire_key(
+                            self.fire_mode as u8,
+                            self.fire_repeat as u8,
+                            self.fire_interval as u8,
+                            self.fire_continuous,
+                        );
+                        self.save_to_cached_profile();
+                    }
                 });
 
                 ui.add_space(8.0);
                 ui.group(|ui| {
                     ui.heading("Pointer & Wheel Speeds");
+                    let mut os_changed = false;
                     ui.horizontal(|ui| {
                         ui.label("Moving Speed (1..11):");
-                        ui.add(egui::Slider::new(&mut self.pointer_speed, 1..=11));
+                        if ui
+                            .add(egui::Slider::new(&mut self.pointer_speed, 1..=11))
+                            .changed()
+                        {
+                            os_changed = true;
+                        }
                     });
-                    ui.checkbox(&mut self.pointer_precision, "Enhance pointer precision");
+                    if ui
+                        .checkbox(&mut self.pointer_precision, "Enhance pointer precision")
+                        .changed()
+                    {
+                        os_changed = true;
+                    }
 
                     ui.horizontal(|ui| {
                         ui.label("Double Click Speed:");
-                        ui.add(egui::Slider::new(&mut self.double_click_speed, 1..=11));
+                        if ui
+                            .add(egui::Slider::new(&mut self.double_click_speed, 1..=11))
+                            .changed()
+                        {
+                            os_changed = true;
+                        }
                     });
 
                     ui.horizontal(|ui| {
                         ui.label("Rolling Speed:");
-                        ui.add(egui::Slider::new(&mut self.rolling_speed, 1..=11));
+                        if ui
+                            .add(egui::Slider::new(&mut self.rolling_speed, 1..=11))
+                            .changed()
+                        {
+                            os_changed = true;
+                        }
                     });
-                    ui.checkbox(&mut self.scroll_one_screen, "Scroll one screen at a time");
+                    if ui
+                        .checkbox(&mut self.scroll_one_screen, "Scroll one screen at a time")
+                        .changed()
+                    {
+                        os_changed = true;
+                    }
+
+                    if os_changed {
+                        self.apply_live_os_mouse_settings();
+                    }
                 });
             });
 
@@ -2716,8 +2829,44 @@ impl Em624App {
                                 ui.add_space(12.0);
                                 ui.separator();
                                 ui.label("EEPROM Hardware Bank:");
-                                if ui.button("Write Macro to Mouse").clicked() {
-                                    self.status_message = "Macro written to mouse hardware bank.".to_string();
+                                if ui.button("Write Macro to Profile").clicked() {
+                                    if let Some(idx) = self.selected_macro {
+                                        if let Some(macro_item) = self.macro_bank.macros.get(idx) {
+                                            let res = macro_item
+                                                .compile_bytecode()
+                                                .map(|code| (macro_item.name.clone(), macro_item.actions.len(), code));
+                                            match res {
+                                                Ok((name, count, bytecode)) => {
+                                                    self.profile.write_macro_bytecode(0, &bytecode);
+                                                    self.save_to_cached_profile();
+                                                    self.status_message = format!(
+                                                        "Macro '{}' compiled ({} actions) into Profile Slot 0 (0x01F0 / 0x0400). Click 'Apply to Mouse' to flash hardware.",
+                                                        name, count
+                                                    );
+                                                    self.log_debug(&format!(
+                                                        "[MACRO] Compiled '{}' bytecode (256B) into profile slots 0x01F0 and 0x0400",
+                                                        name
+                                                    ));
+                                                }
+                                                Err(e) => {
+                                                    self.status_message = format!("Macro compilation error: {}", e);
+                                                    self.log_debug(&format!("[MACRO_ERR] {}", e));
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        self.status_message = "Please select a macro from the library first.".to_string();
+                                    }
+                                }
+
+                                ui.add_space(6.0);
+                                if ui.button("Save Macro Bank to Disk").clicked() {
+                                    let macro_path = self.config.cache_dir().join("macros.bin");
+                                    if let Err(e) = self.macro_bank.save_file(&macro_path) {
+                                        self.status_message = format!("Failed to save macro bank: {}", e);
+                                    } else {
+                                        self.status_message = format!("Macro bank saved to disk ({} macros).", self.macro_bank.macros.len());
+                                    }
                                 }
                             });
                     });
