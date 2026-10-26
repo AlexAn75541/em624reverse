@@ -598,6 +598,112 @@ impl MouseProfile {
         seq[8] = 0xfc; // Terminate
 
         self.raw[0x0130..0x0130 + 168].copy_from_slice(&seq);
+
+        // Byte 0x0006 register packing matching Delphi disassembler:
+        // Bits 7..6: Sensor Orientation (01 = 180 deg orientation = 0x40)
+        // Bits 5..4: Standard feature bits (0x30)
+        // Bits 3..2: Fire Frequency (0=5ms, 1=10ms, 2=20ms, 3=50ms)
+        // Bits 1..0: Fire Count (0=1/2, 1=2/3, 2=3/4, 3=continuous)
+        let freq_code = if interval <= 5 {
+            0
+        } else if interval <= 10 {
+            1
+        } else if interval <= 20 {
+            2
+        } else {
+            3
+        };
+        let cnt_code = if continuous {
+            3
+        } else {
+            match repeat {
+                1 | 2 => 0,
+                3 => 1,
+                4 => 2,
+                _ => 3,
+            }
+        };
+        self.raw[0x0006] = 0x70 | (freq_code << 2) | cnt_code;
+
+        self.recalculate_checksums();
+    }
+
+    /// Get hardware polling rate in Hz (125, 250, 500, or 1000) from byte 0x0004 bits 5..4
+    pub fn polling_rate(&self) -> u32 {
+        if self.raw.len() != PROFILE_SIZE {
+            return 1000;
+        }
+        match (self.raw[4] >> 4) & 0x03 {
+            0 => 125,
+            1 => 250,
+            2 => 500,
+            _ => 1000,
+        }
+    }
+
+    /// Set hardware polling rate in Hz (125, 250, 500, or 1000) at byte 0x0004 bits 5..4
+    pub fn set_polling_rate(&mut self, rate_hz: u32) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        let code = match rate_hz {
+            125 => 0,
+            250 => 1,
+            500 => 2,
+            _ => 3,
+        };
+        self.raw[4] = (self.raw[4] & !0x30) | (code << 4);
+        self.recalculate_checksums();
+    }
+
+    /// Get LED lighting mode (0=Breathing, 1=Colorful Light, 2=Rainbow, 3=Flow Light, 4=Waltz, 5=4-Seasons, 6=Off)
+    pub fn led_mode(&self) -> u8 {
+        if self.raw.len() != PROFILE_SIZE {
+            return 1;
+        }
+        self.raw[0x0018].min(6)
+    }
+
+    /// Set LED lighting mode (0..6) at byte 0x0018
+    pub fn set_led_mode(&mut self, mode: u8) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        self.raw[0x0018] = mode.min(6);
+        self.recalculate_checksums();
+    }
+
+    /// Get LED breathing/animation speed (1..5) from byte 0x0007
+    pub fn led_speed(&self) -> u8 {
+        if self.raw.len() != PROFILE_SIZE {
+            return 3;
+        }
+        self.raw[0x0007].clamp(1, 5)
+    }
+
+    /// Set LED breathing/animation speed (1..5) at byte 0x0007
+    pub fn set_led_speed(&mut self, speed: u8) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        self.raw[0x0007] = speed.clamp(1, 5);
+        self.recalculate_checksums();
+    }
+
+    /// Get LED brightness (0=Full, 1=Half) from byte 0x0008
+    pub fn led_brightness(&self) -> u8 {
+        if self.raw.len() != PROFILE_SIZE {
+            return 0;
+        }
+        self.raw[0x0008].min(1)
+    }
+
+    /// Set LED brightness (0=Full, 1=Half) at byte 0x0008
+    pub fn set_led_brightness(&mut self, brightness: u8) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        self.raw[0x0008] = brightness.min(1);
         self.recalculate_checksums();
     }
 
@@ -853,5 +959,45 @@ mod tests {
 
         assert_eq!(&profile.raw[0x01f0..0x01f8], &dummy_code);
         assert_eq!(&profile.raw[0x0400..0x0408], &dummy_code);
+    }
+
+    #[test]
+    fn test_polling_rate_registers() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let mut profile = MouseProfile::from_bytes(baseline).unwrap();
+
+        profile.set_polling_rate(125);
+        assert_eq!(profile.polling_rate(), 125);
+        assert_eq!((profile.raw[0x0004] >> 4) & 0x03, 0);
+
+        profile.set_polling_rate(250);
+        assert_eq!(profile.polling_rate(), 250);
+        assert_eq!((profile.raw[0x0004] >> 4) & 0x03, 1);
+
+        profile.set_polling_rate(500);
+        assert_eq!(profile.polling_rate(), 500);
+        assert_eq!((profile.raw[0x0004] >> 4) & 0x03, 2);
+
+        profile.set_polling_rate(1000);
+        assert_eq!(profile.polling_rate(), 1000);
+        assert_eq!((profile.raw[0x0004] >> 4) & 0x03, 3);
+    }
+
+    #[test]
+    fn test_led_registers() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let mut profile = MouseProfile::from_bytes(baseline).unwrap();
+
+        profile.set_led_mode(3);
+        assert_eq!(profile.led_mode(), 3);
+        assert_eq!(profile.raw[0x0018], 3);
+
+        profile.set_led_speed(5);
+        assert_eq!(profile.led_speed(), 5);
+        assert_eq!(profile.raw[0x0007], 5);
+
+        profile.set_led_brightness(1);
+        assert_eq!(profile.led_brightness(), 1);
+        assert_eq!(profile.raw[0x0008], 1);
     }
 }

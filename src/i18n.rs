@@ -547,4 +547,62 @@ impl Strings {
             Language::Vietnamese => "Kích thước rộng (1120 x 740)",
         }
     }
+
+    pub fn macro_guide_toggle(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Disable Guiding Widgets",
+            Language::Vietnamese => "Ẩn tiện ích hướng dẫn",
+        }
+    }
+
+    pub fn macro_guide_settings_toggle(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Disable Macro Manager Guiding UI Widgets (Minimalist View)",
+            Language::Vietnamese => {
+                "Vô hiệu hóa tiện ích hướng dẫn trong Trình quản lý Macro (Giao diện tối giản)"
+            }
+        }
+    }
+
+    pub fn macro_guide_title(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Macro Workflow & EEPROM Storage Guide",
+            Language::Vietnamese => "Hướng dẫn Quy trình Tạo Macro & Nạp vào EEPROM",
+        }
+    }
+
+    pub fn macro_guide_dismiss_btn(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Hide Guide",
+            Language::Vietnamese => "Ẩn hướng dẫn",
+        }
+    }
+
+    pub fn macro_guide_step1(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "1. Select or create macro",
+            Language::Vietnamese => "1. Chọn hoặc tạo macro",
+        }
+    }
+
+    pub fn macro_guide_step2(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "2. Add keys, clicks & delays",
+            Language::Vietnamese => "2. Thêm phím, nhấp chuột & độ trễ",
+        }
+    }
+
+    pub fn macro_guide_step3(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "3. Configure timing & loop",
+            Language::Vietnamese => "3. Cấu hình thời gian & lặp",
+        }
+    }
+
+    pub fn macro_guide_step4(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "4. Click 'Write Macro to Profile' & Apply to Mouse",
+            Language::Vietnamese => "4. Bấm 'Ghi Macro vào Hồ sơ' & Áp dụng vào chuột",
+        }
+    }
 }

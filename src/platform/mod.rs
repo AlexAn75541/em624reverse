@@ -79,3 +79,25 @@ pub fn ensure_console_allocated() {
     #[cfg(not(any(target_os = "windows", target_os = "linux")))]
     fallback::ensure_console_allocated();
 }
+
+pub fn open_folder_in_file_manager(path: &Path) -> Result<()> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer").arg(path).spawn()?;
+        Ok(())
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open").arg(path).spawn()?;
+        Ok(())
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg(path).spawn()?;
+        Ok(())
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    {
+        anyhow::bail!("Unsupported platform for opening file manager");
+    }
+}

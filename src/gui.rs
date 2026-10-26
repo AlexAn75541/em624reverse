@@ -45,6 +45,7 @@ pub struct ThemePalette {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct AppConfig {
     pub ui_scale: f32,
     pub debug_mode: bool,
@@ -63,6 +64,8 @@ pub struct AppConfig {
     pub custom_font_name: Option<String>,
     #[serde(default)]
     pub free_window_resize: bool,
+    #[serde(default)]
+    pub disable_macro_guide: bool,
 }
 
 impl Default for AppConfig {
@@ -78,11 +81,15 @@ impl Default for AppConfig {
             show_mode_switcher: false,
             custom_font_name: None,
             free_window_resize: false,
+            disable_macro_guide: false,
         }
     }
 }
 
 impl AppConfig {
+    pub fn data_dir(&self) -> PathBuf {
+        self.get_master_data_dir()
+    }
     pub fn fonts_dir(&self) -> PathBuf {
         self.get_master_data_dir().join(".fonts")
     }
@@ -212,12 +219,22 @@ pub struct Em624App {
     device_rx: std::sync::mpsc::Receiver<crate::platform::DeviceStatus>,
     custom_dir_input: String,
     custom_dir_error: Option<String>,
-    // Font settings & verification
+    // Macro timing & loop options (independent of fire_mode)
+    macro_timing_mode: usize,
+    macro_loop_mode: usize,
+    macro_repeat_count: u32,
+    // Font settings, catalog & verification
     font_input_name: String,
     font_source_option: crate::font_service::FontSourceOption,
     font_check_state: crate::font_service::FontCheckState,
     font_check_rx:
         Option<std::sync::mpsc::Receiver<Result<crate::font_service::VerifiedFont, String>>>,
+    font_catalog_shown: Vec<String>,
+    font_variants: Vec<crate::font_service::FontVariant>,
+    selected_variant_idx: Option<usize>,
+    font_variant_rx:
+        Option<std::sync::mpsc::Receiver<Result<Vec<crate::font_service::FontVariant>, String>>>,
+    font_variants_loading: bool,
 }
 
 pub fn format_time_date_log() -> String {
@@ -325,7 +342,7 @@ impl Default for Em624App {
         let scroll_one_screen = os_settings.scroll_one_screen;
         let pointer_precision = os_settings.enhance_precision;
 
-        let app = Self {
+        let mut app = Self {
             config,
             profile,
             active_tab: Tab::GameMode,
@@ -364,12 +381,25 @@ impl Default for Em624App {
             device_rx,
             custom_dir_input,
             custom_dir_error: None,
+            macro_timing_mode: 0,
+            macro_loop_mode: 0,
+            macro_repeat_count: 1,
             font_input_name: custom_font_name.unwrap_or_else(|| "Inter".to_string()),
             font_source_option: crate::font_service::FontSourceOption::Auto,
             font_check_state: crate::font_service::FontCheckState::Idle,
             font_check_rx: None,
+            font_catalog_shown: {
+                let mut list = Vec::new();
+                let _ = crate::font_service::get_random_font_batch(10, &mut list);
+                list
+            },
+            font_variants: Vec::new(),
+            selected_variant_idx: None,
+            font_variant_rx: None,
+            font_variants_loading: false,
         };
 
+        app.sync_from_profile();
         app.log_debug("[STARTUP] E-DRA EM624 Configurator GUI session started.");
         app
     }
@@ -715,6 +745,18 @@ impl Em624App {
         }
     }
 
+    fn sync_from_profile(&mut self) {
+        self.polling_rate_idx = match self.profile.polling_rate() {
+            125 => 0,
+            250 => 1,
+            500 => 2,
+            _ => 3,
+        };
+        self.led_mode = self.profile.led_mode() as usize;
+        self.led_speed = self.profile.led_speed() as u32;
+        self.led_brightness = self.profile.led_brightness() as usize;
+    }
+
     fn sync_settings_to_profile(&mut self) {
         // Enforce safe stages and limit unless experimental Stage 6 is unlocked
         if !self.config.allow_stage_6 {
@@ -732,7 +774,14 @@ impl Em624App {
         self.profile.raw[0x00aa] = 0x18; // Feature report enable
         self.profile.raw[0x03f9] &= 0x7f; // Clear button lockout flag
 
-        // Sync Polling Rate (byte 0x00A8): 125Hz=1, 250Hz=2, 500Hz=4, 1000Hz=15
+        // Sync Polling Rate (byte 0x0004 bits 5..4 and 0x00A8):
+        let rate_hz = match self.polling_rate_idx {
+            0 => 125,
+            1 => 250,
+            2 => 500,
+            _ => 1000,
+        };
+        self.profile.set_polling_rate(rate_hz);
         self.profile.raw[0x00a8] = match self.polling_rate_idx {
             0 => 0x01, // 125 Hz
             1 => 0x02, // 250 Hz
@@ -740,17 +789,13 @@ impl Em624App {
             _ => 0x0f, // 1000 Hz
         };
 
-        // In stock firmware:
-        // Byte 0x0006 is the Sensor Orientation / Inversion DSP register:
-        // 0x7F (bits 7..6 = 01) matches the physical 180° sensor mounting angle on the EM624 PCB (Standard normal motion).
-        // If written as 0x00 (bits 7..6 = 00 = 270°), the optical DSP rotates tracking by 90°, swapping Up/Down with Left/Right.
-        self.profile.raw[0x0006] = 0x7f;
-        self.profile.raw[0x0007] = 0x7f;
-
-        // Byte 0x0018 is the LED lighting effect mode in SPCP6651B MCU:
-        // (0=Breathing, 1=Colorful Light, 2=Rainbow, 3=Flow Light, 4=Waltz, 5=4-Seasons, 6=Off)
-        self.profile.raw[0x0018] = self.led_mode as u8;
-        self.profile.raw[0x0008] = self.led_brightness as u8;
+        // LED lighting registers:
+        // Byte 0x0018: LED lighting effect mode (0=Breathing, 1=Colorful Light, 2=Rainbow, 3=Flow Light, 4=Waltz, 5=4-Seasons, 6=Off)
+        // Byte 0x0007: LED breathing/animation speed (1..5)
+        // Byte 0x0008: LED brightness (0=Full, 1=Half)
+        self.profile.set_led_mode(self.led_mode as u8);
+        self.profile.set_led_speed(self.led_speed as u8);
+        self.profile.set_led_brightness(self.led_brightness as u8);
 
         // Sync Fire Key configuration and compile rapid fire bytecode
         self.profile.set_fire_key(
@@ -1029,6 +1074,7 @@ impl Em624App {
                 let cached_path = cache_dir.join(format!("{}.em624", stem));
                 if let Ok(()) = prof.save_file(&cached_path) {
                     self.profile = prof;
+                    self.sync_from_profile();
                     self.file_path = Some(cached_path.clone());
                     self.status_message =
                         format!("Converted and loaded into {}", cached_path.display());
@@ -1046,6 +1092,7 @@ impl Em624App {
         // Standard load
         if let Ok(p) = MouseProfile::load_file(&path) {
             self.profile = p;
+            self.sync_from_profile();
             self.file_path = Some(path.clone());
             self.status_message = format!("Loaded profile: {}", path.display());
             self.config.last_profile = Some(path.to_string_lossy().to_string());
@@ -1199,10 +1246,45 @@ impl Em624App {
         self.font_check_rx = Some(rx);
 
         let opt = self.font_source_option;
+        let variant_url = self
+            .selected_variant_idx
+            .and_then(|idx| self.font_variants.get(idx))
+            .map(|v| (v.label.clone(), v.download_url.clone()));
+
         std::thread::spawn(move || {
-            let res = crate::font_service::verify_and_fetch_font(&name, opt);
+            let res = if let Some((var_label, url)) = variant_url {
+                crate::font_service::fetch_direct_url(&url).map(|(family, _, bytes)| {
+                    let size_kb = bytes.len() / 1024;
+                    crate::font_service::VerifiedFont {
+                        display_name: format!("{name} {var_label}"),
+                        family_name: family,
+                        source_name: "Direct Variant Download",
+                        download_url: url,
+                        font_bytes: bytes,
+                        file_size_kb: size_kb,
+                    }
+                })
+            } else {
+                crate::font_service::verify_and_fetch_font(&name, opt)
+            };
             let _ = tx.send(res);
         });
+    }
+
+    pub fn start_fetch_font_variants(&mut self) {
+        let name = self.font_input_name.trim().to_string();
+        if name.is_empty() {
+            self.font_variants.clear();
+            self.selected_variant_idx = None;
+            self.font_variants_loading = false;
+            return;
+        }
+        self.font_variants.clear();
+        self.selected_variant_idx = None;
+        self.font_variants_loading = true;
+        let opt = self.font_source_option;
+        let rx = crate::font_service::start_fetch_font_variants(name, opt);
+        self.font_variant_rx = Some(rx);
     }
 
     pub fn poll_font_verification(&mut self, ctx: &egui::Context) {
@@ -1218,6 +1300,33 @@ impl Em624App {
                     }
                 }
                 self.font_check_rx = None;
+                ctx.request_repaint();
+            }
+        }
+
+        if let Some(ref rx) = self.font_variant_rx {
+            if let Ok(res) = rx.try_recv() {
+                self.font_variants_loading = false;
+                match res {
+                    Ok(vars) => {
+                        self.font_variants = vars;
+                        // Select Regular 400 by default if available
+                        self.selected_variant_idx = self
+                            .font_variants
+                            .iter()
+                            .position(|v| v.weight == 400 && !v.italic)
+                            .or(if self.font_variants.is_empty() {
+                                None
+                            } else {
+                                Some(0)
+                            });
+                    }
+                    Err(_) => {
+                        self.font_variants.clear();
+                        self.selected_variant_idx = None;
+                    }
+                }
+                self.font_variant_rx = None;
                 ctx.request_repaint();
             }
         }
@@ -1670,6 +1779,7 @@ impl Em624App {
                     ui.selectable_value(&mut self.rebind_category, 3, "DPI / Special");
                     ui.selectable_value(&mut self.rebind_category, 4, "Media");
                     ui.selectable_value(&mut self.rebind_category, 5, "Productivity");
+                    ui.selectable_value(&mut self.rebind_category, 7, "Macro [EXPERIMENTAL]");
                     ui.selectable_value(&mut self.rebind_category, 6, "Disable");
                 });
 
@@ -1692,6 +1802,7 @@ impl Em624App {
                         3 => self.render_category_special(ui),
                         4 => self.render_category_media(ui),
                         5 => self.render_category_productivity(ui),
+                        7 => self.render_category_macro(ui),
                         _ => {
                             self.rebind_candidate = Some([0x00, 0x00, 0x00, 0x00]);
                             ui.label("This button will be disabled (no action).");
@@ -2051,6 +2162,40 @@ impl Em624App {
             let is_sel = self.rebind_candidate == Some(bytes);
             if ui.selectable_label(is_sel, label).clicked() {
                 self.rebind_candidate = Some(bytes);
+            }
+        }
+    }
+
+    fn render_category_macro(&mut self, ui: &mut egui::Ui) {
+        ui.label(
+            egui::RichText::new(
+                "Select a recorded hardware macro to bind to this physical button [EXPERIMENTAL]:",
+            )
+            .small(),
+        );
+        ui.add_space(6.0);
+        if self.macro_bank.macros.is_empty() {
+            ui.label(
+                egui::RichText::new(
+                    "No macros recorded in Macro Manager yet. Go to Macro tab to create one.",
+                )
+                .color(Color32::from_rgb(255, 180, 0)),
+            );
+        } else {
+            for (idx, macro_item) in self.macro_bank.macros.iter().enumerate() {
+                let is_selected = match self.rebind_candidate {
+                    Some([0x05, m_idx, _, _]) => m_idx as usize == idx,
+                    _ => false,
+                };
+                let label = format!(
+                    "Macro #{}: {} ({} steps)",
+                    idx + 1,
+                    macro_item.name,
+                    macro_item.actions.len()
+                );
+                if ui.selectable_label(is_selected, label).clicked() {
+                    self.rebind_candidate = Some([0x05, idx as u8, 0x00, 0x00]);
+                }
             }
         }
     }
@@ -2578,33 +2723,64 @@ impl Em624App {
                     ui.label("Select active polling frequency (interchangeable):");
                     ui.add_space(6.0);
 
+                    let mut rate_changed = false;
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut self.polling_rate_idx, 0, "125 Hz (8 ms)");
-                        ui.radio_value(&mut self.polling_rate_idx, 1, "250 Hz (4 ms)");
-                        ui.radio_value(&mut self.polling_rate_idx, 2, "500 Hz (2 ms)");
-                        ui.radio_value(&mut self.polling_rate_idx, 3, "1000 Hz (1 ms)");
+                        if ui.radio_value(&mut self.polling_rate_idx, 0, "125 Hz (8 ms)").changed() {
+                            rate_changed = true;
+                        }
+                        if ui.radio_value(&mut self.polling_rate_idx, 1, "250 Hz (4 ms)").changed() {
+                            rate_changed = true;
+                        }
+                        if ui.radio_value(&mut self.polling_rate_idx, 2, "500 Hz (2 ms)").changed() {
+                            rate_changed = true;
+                        }
+                        if ui.radio_value(&mut self.polling_rate_idx, 3, "1000 Hz (1 ms)").changed() {
+                            rate_changed = true;
+                        }
                     });
+                    if rate_changed {
+                        let hz = match self.polling_rate_idx {
+                            0 => 125,
+                            1 => 250,
+                            2 => 500,
+                            _ => 1000,
+                        };
+                        self.profile.set_polling_rate(hz);
+                        self.save_to_cached_profile();
+                        self.status_message = format!(
+                            "Polling rate set to {} Hz. Click 'Flash to Mouse' to commit to hardware.",
+                            hz
+                        );
+                    }
                 });
             });
         });
     }
 
     fn render_led_tab(&mut self, ui: &mut egui::Ui) {
+        let pal = self.palette();
         ui.add_space(6.0);
         ui.heading("LED Backlight & Lighting Effects (Unfinished)");
         ui.label(
             egui::RichText::new("Configure RGB breathing, speed, mode, and brightness:")
                 .small()
-                .color(Color32::from_rgb(140, 160, 190)),
+                .color(pal.text_secondary),
         );
         ui.add_space(14.0);
+
+        let mut led_changed = false;
 
         ui.group(|ui| {
             ui.heading("LED Breathing Speed");
             ui.horizontal(|ui| {
-                ui.label("Slow");
-                ui.add(egui::Slider::new(&mut self.led_speed, 1..=5).show_value(false));
-                ui.label("Fast");
+                ui.label("Slow (1)");
+                if ui
+                    .add(egui::Slider::new(&mut self.led_speed, 1..=5).show_value(true))
+                    .changed()
+                {
+                    led_changed = true;
+                }
+                ui.label("Fast (5)");
             });
         });
 
@@ -2612,16 +2788,36 @@ impl Em624App {
         ui.group(|ui| {
             ui.heading("LED Mode");
             ui.horizontal(|ui| {
-                ui.radio_value(&mut self.led_mode, 0, "Breathing");
-                ui.radio_value(&mut self.led_mode, 1, "Colorful Light");
-                ui.radio_value(&mut self.led_mode, 2, "Rainbow");
+                if ui.radio_value(&mut self.led_mode, 0, "Breathing").changed() {
+                    led_changed = true;
+                }
+                if ui
+                    .radio_value(&mut self.led_mode, 1, "Colorful Light")
+                    .changed()
+                {
+                    led_changed = true;
+                }
+                if ui.radio_value(&mut self.led_mode, 2, "Rainbow").changed() {
+                    led_changed = true;
+                }
             });
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.radio_value(&mut self.led_mode, 3, "Flow Light");
-                ui.radio_value(&mut self.led_mode, 4, "Waltz");
-                ui.radio_value(&mut self.led_mode, 5, "4-Seasons");
-                ui.radio_value(&mut self.led_mode, 6, "Off");
+                if ui
+                    .radio_value(&mut self.led_mode, 3, "Flow Light")
+                    .changed()
+                {
+                    led_changed = true;
+                }
+                if ui.radio_value(&mut self.led_mode, 4, "Waltz").changed() {
+                    led_changed = true;
+                }
+                if ui.radio_value(&mut self.led_mode, 5, "4-Seasons").changed() {
+                    led_changed = true;
+                }
+                if ui.radio_value(&mut self.led_mode, 6, "Off").changed() {
+                    led_changed = true;
+                }
             });
         });
 
@@ -2629,21 +2825,127 @@ impl Em624App {
         ui.group(|ui| {
             ui.heading("LED Brightness");
             ui.horizontal(|ui| {
-                ui.radio_value(&mut self.led_brightness, 0, "Full Brightness");
-                ui.radio_value(&mut self.led_brightness, 1, "Half Brightness");
+                if ui
+                    .radio_value(&mut self.led_brightness, 0, "Full Brightness (100%)")
+                    .changed()
+                {
+                    led_changed = true;
+                }
+                if ui
+                    .radio_value(&mut self.led_brightness, 1, "Half Brightness (50%)")
+                    .changed()
+                {
+                    led_changed = true;
+                }
             });
         });
+
+        if led_changed {
+            self.profile.set_led_mode(self.led_mode as u8);
+            self.profile.set_led_speed(self.led_speed as u8);
+            self.profile.set_led_brightness(self.led_brightness as u8);
+            self.save_to_cached_profile();
+            self.status_message = format!(
+                "LED Settings updated: Mode {}, Speed {}, Brightness {}. Click 'Flash to Mouse' to commit to hardware.",
+                self.led_mode,
+                self.led_speed,
+                if self.led_brightness == 0 {
+                    "Full"
+                } else {
+                    "Half"
+                }
+            );
+        }
     }
 
     fn render_macro_tab(&mut self, ui: &mut egui::Ui) {
+        let pal = self.palette();
+        let lang = self.config.language;
         ui.add_space(6.0);
-        ui.heading("Macro Manager (Unfinished)");
-        ui.label(
-            egui::RichText::new("Record, assign, and store keystroke sequences to mouse EEPROM:")
+
+        ui.horizontal(|ui| {
+            ui.heading("Macro Manager (Unfinished)");
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let mut disable = self.config.disable_macro_guide;
+                if ui
+                    .checkbox(&mut disable, Strings::macro_guide_toggle(lang))
+                    .on_hover_text(
+                        "Toggle off or on the step-by-step guidance panel and helper hints in Macro Manager.",
+                    )
+                    .changed()
+                {
+                    self.config.disable_macro_guide = disable;
+                    self.config.save();
+                }
+            });
+        });
+
+        if !self.config.disable_macro_guide {
+            ui.add_space(2.0);
+            ui.label(
+                egui::RichText::new(
+                    "Record, assign, and store keystroke sequences to mouse EEPROM:",
+                )
                 .small()
-                .color(Color32::from_rgb(140, 160, 190)),
-        );
-        ui.add_space(10.0);
+                .color(pal.text_secondary),
+            );
+            ui.add_space(6.0);
+
+            // Guiding UI Widget Card
+            egui::Frame::none()
+                .fill(pal.card_bg)
+                .stroke(Stroke::new(1.0_f32, pal.card_border))
+                .rounding(6.0)
+                .inner_margin(8.0)
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(egui::RichText::new("[i]").strong().color(pal.accent));
+                        ui.label(
+                            egui::RichText::new(Strings::macro_guide_title(lang))
+                                .strong()
+                                .color(pal.text_primary),
+                        );
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui
+                                .small_button(Strings::macro_guide_dismiss_btn(lang))
+                                .clicked()
+                            {
+                                self.config.disable_macro_guide = true;
+                                self.config.save();
+                            }
+                        });
+                    });
+                    ui.add_space(4.0);
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(
+                            egui::RichText::new(Strings::macro_guide_step1(lang))
+                                .small()
+                                .color(pal.text_secondary),
+                        );
+                        ui.label(egui::RichText::new("->").small().color(pal.accent));
+                        ui.label(
+                            egui::RichText::new(Strings::macro_guide_step2(lang))
+                                .small()
+                                .color(pal.text_secondary),
+                        );
+                        ui.label(egui::RichText::new("->").small().color(pal.accent));
+                        ui.label(
+                            egui::RichText::new(Strings::macro_guide_step3(lang))
+                                .small()
+                                .color(pal.text_secondary),
+                        );
+                        ui.label(egui::RichText::new("->").small().color(pal.accent));
+                        ui.label(
+                            egui::RichText::new(Strings::macro_guide_step4(lang))
+                                .small()
+                                .color(pal.text_secondary),
+                        );
+                    });
+                });
+            ui.add_space(6.0);
+        } else {
+            ui.add_space(6.0);
+        }
 
         // Fully responsive scaling based on available viewport
         let total_w = ui.available_width();
@@ -2723,7 +3025,13 @@ impl Em624App {
                                         ui.separator();
 
                                         if macro_item.actions.is_empty() {
-                                            ui.label("No actions in sequence. Click buttons below to add steps.");
+                                            if !self.config.disable_macro_guide {
+                                                ui.label(
+                                                    "No actions in sequence. Click buttons below to add steps.",
+                                                );
+                                            } else {
+                                                ui.label("(Empty sequence)");
+                                            }
                                         } else {
                                             let mut to_remove = None;
                                             for (step_idx, action) in macro_item.actions.iter_mut().enumerate() {
@@ -2772,7 +3080,11 @@ impl Em624App {
                                         }
                                     }
                                 } else {
-                                    ui.label("Select or create a macro from the library.");
+                                    if !self.config.disable_macro_guide {
+                                        ui.label("Select or create a macro from the library.");
+                                    } else {
+                                        ui.label("(No macro selected)");
+                                    }
                                 }
                             });
                     });
@@ -2816,15 +3128,21 @@ impl Em624App {
                             .max_height(total_h - 90.0)
                             .show(ui, |ui| {
                                 ui.label("Recording Timing:");
-                                ui.radio_value(&mut self.fire_mode, 0, "Real record");
-                                ui.radio_value(&mut self.fire_mode, 1, "Fixed Delay (50ms)");
-                                ui.radio_value(&mut self.fire_mode, 2, "No Delay");
+                                ui.radio_value(&mut self.macro_timing_mode, 0, "Real record");
+                                ui.radio_value(&mut self.macro_timing_mode, 1, "Fixed Delay (50ms)");
+                                ui.radio_value(&mut self.macro_timing_mode, 2, "No Delay");
 
                                 ui.add_space(10.0);
                                 ui.label("Playback Loop:");
-                                ui.radio_value(&mut self.fire_mode, 3, "Play once");
-                                ui.radio_value(&mut self.fire_mode, 4, "Hold until released");
-                                ui.radio_value(&mut self.fire_mode, 5, "Repeat N times");
+                                ui.radio_value(&mut self.macro_loop_mode, 0, "Play once");
+                                ui.radio_value(&mut self.macro_loop_mode, 1, "Hold until released");
+                                ui.radio_value(&mut self.macro_loop_mode, 2, "Repeat N times");
+                                if self.macro_loop_mode == 2 {
+                                    ui.horizontal(|ui| {
+                                        ui.label("Times:");
+                                        ui.add(egui::DragValue::new(&mut self.macro_repeat_count).range(1..=100));
+                                    });
+                                }
 
                                 ui.add_space(12.0);
                                 ui.separator();
@@ -3051,6 +3369,67 @@ impl Em624App {
 
         ui.add_space(12.0);
         ui.group(|ui| {
+            ui.heading(format!("{} Quick Access Folders", Icons::FOLDER_OPEN));
+            ui.label(
+                egui::RichText::new(
+                    "Open application folders directly in your system file explorer:",
+                )
+                .small()
+                .color(pal.text_secondary),
+            );
+            ui.add_space(8.0);
+
+            ui.horizontal(|ui| {
+                if ui
+                    .button(icon_label_spaced(
+                        Icons::FOLDER_OPEN,
+                        "Open App Folder",
+                        6.0,
+                    ))
+                    .on_hover_text("Open folder containing em624-reversed executable")
+                    .clicked()
+                {
+                    let app_dir = std::env::current_exe()
+                        .ok()
+                        .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                        .unwrap_or_else(|| PathBuf::from("."));
+                    let _ = crate::platform::open_folder_in_file_manager(&app_dir);
+                }
+
+                if ui
+                    .button(icon_label_spaced(
+                        Icons::FOLDER_OPEN,
+                        "Open Data Folder",
+                        6.0,
+                    ))
+                    .on_hover_text(
+                        "Open master data directory containing custom profiles and macros",
+                    )
+                    .clicked()
+                {
+                    let data_dir = self.config.data_dir();
+                    let _ = fs::create_dir_all(&data_dir);
+                    let _ = crate::platform::open_folder_in_file_manager(&data_dir);
+                }
+
+                if ui
+                    .button(icon_label_spaced(
+                        Icons::FOLDER_OPEN,
+                        "Open Cache Folder",
+                        6.0,
+                    ))
+                    .on_hover_text("Open temporary active profile and downloaded font cache")
+                    .clicked()
+                {
+                    let cache_dir = self.config.cache_dir();
+                    let _ = fs::create_dir_all(&cache_dir);
+                    let _ = crate::platform::open_folder_in_file_manager(&cache_dir);
+                }
+            });
+        });
+
+        ui.add_space(12.0);
+        ui.group(|ui| {
             ui.heading(Strings::scale_section_title(lang));
             ui.label(
                 egui::RichText::new(Strings::scale_section_desc(lang)).color(pal.text_secondary),
@@ -3193,27 +3572,84 @@ impl Em624App {
                     });
             });
 
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.label(
-                    egui::RichText::new("Quick Test Presets:")
-                        .small()
-                        .color(pal.text_secondary),
-                );
-                for (name, src) in [
-                    ("Inter", crate::font_service::FontSourceOption::GoogleFonts),
-                    ("Roboto", crate::font_service::FontSourceOption::GoogleFonts),
-                    ("Fira Code", crate::font_service::FontSourceOption::GoogleFonts),
-                    ("General Sans", crate::font_service::FontSourceOption::Fontshare),
-                    ("Satoshi", crate::font_service::FontSourceOption::Fontshare),
-                    ("Montserrat", crate::font_service::FontSourceOption::GoogleFonts),
-                ] {
-                    if ui.small_button(name).clicked() {
-                        self.font_input_name = name.to_string();
-                        self.font_source_option = src;
-                        self.start_font_verification();
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new("Random Cloud Fonts (Google Fonts & Fontshare):")
+                    .small()
+                    .color(pal.text_secondary),
+            );
+            ui.horizontal_wrapped(|ui| {
+                let mut clicked_font = None;
+                for name in &self.font_catalog_shown {
+                    let is_active = self.font_input_name.eq_ignore_ascii_case(name);
+                    if ui.selectable_label(is_active, name).clicked() {
+                        clicked_font = Some(name.clone());
                     }
                 }
+                if let Some(font) = clicked_font {
+                    self.font_input_name = font;
+                    self.start_fetch_font_variants();
+                    self.start_font_verification();
+                }
+
+                if ui
+                    .button(egui::RichText::new("+ See More").strong().color(pal.accent))
+                    .on_hover_text("Fetch another 10 random fonts from the catalog")
+                    .clicked()
+                {
+                    crate::font_service::get_random_font_batch(10, &mut self.font_catalog_shown);
+                }
+            });
+
+            ui.add_space(10.0);
+            // Variant list downward to that box, only fetch available variants of the selected font, otherwise greyed out
+            let font_selected = !self.font_input_name.trim().is_empty();
+            ui.group(|ui| {
+                ui.add_enabled_ui(font_selected, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            egui::RichText::new("Font Variant / Weight [EXPERIMENTAL]:").strong(),
+                        );
+                        if !font_selected {
+                            ui.label(
+                                egui::RichText::new(
+                                    "(No font selected. Select a font above to view available variants)",
+                                )
+                                .italics()
+                                .color(pal.text_secondary),
+                            );
+                        } else if self.font_variants_loading {
+                            ui.spinner();
+                            ui.label("Fetching available variants from cloud...");
+                        } else if self.font_variants.is_empty() {
+                            ui.label(
+                                egui::RichText::new("Standard / Default Weight").color(pal.accent),
+                            );
+                        } else {
+                            let current_label = self
+                                .selected_variant_idx
+                                .and_then(|idx| self.font_variants.get(idx))
+                                .map(|v| v.label.as_str())
+                                .unwrap_or("Select variant");
+
+                            egui::ComboBox::from_id_source("font_variant_selector_dropdown")
+                                .selected_text(current_label)
+                                .show_ui(ui, |ui| {
+                                    let mut variant_changed = false;
+                                    for (idx, var) in self.font_variants.iter().enumerate() {
+                                        let is_sel = self.selected_variant_idx == Some(idx);
+                                        if ui.selectable_label(is_sel, &var.label).clicked() {
+                                            self.selected_variant_idx = Some(idx);
+                                            variant_changed = true;
+                                        }
+                                    }
+                                    if variant_changed {
+                                        self.start_font_verification();
+                                    }
+                                });
+                        }
+                    });
+                });
             });
 
             ui.add_space(8.0);
@@ -3384,6 +3820,22 @@ impl Em624App {
                 self.config.save();
             }
 
+            ui.add_space(4.0);
+            let mut disable_guide = self.config.disable_macro_guide;
+            if ui
+                .checkbox(
+                    &mut disable_guide,
+                    Strings::macro_guide_settings_toggle(lang),
+                )
+                .on_hover_text(
+                    "When checked, hides the quick guide walkthrough panel, workflow steps, and helper hints in the Macro Manager tab.",
+                )
+                .changed()
+            {
+                self.config.disable_macro_guide = disable_guide;
+                self.config.save();
+            }
+
             ui.add_space(10.0);
             ui.separator();
             ui.add_space(6.0);
@@ -3515,6 +3967,7 @@ pub fn format_binding_desc(bytes: &[u8; 4]) -> String {
             0x02 => "DPI +".to_string(),
             other => format!("Fn 0x{:02x}", other),
         },
+        0x05 => format!("Macro #{} [EXPERIMENTAL]", p1 + 1),
         0x00 => "Disabled (None)".to_string(),
         other => format!("Type 0x{:02x}", other),
     }
@@ -3549,4 +4002,37 @@ pub fn chrono_or_simple_time() -> String {
         (now / 60) % 60,
         now % 60
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_app_config_disable_macro_guide_default_and_serde() {
+        let default_cfg = AppConfig::default();
+        assert!(
+            !default_cfg.disable_macro_guide,
+            "disable_macro_guide must default to false"
+        );
+
+        // Deserializing empty JSON should default disable_macro_guide to false
+        let json_empty = "{}";
+        let parsed: AppConfig = serde_json::from_str(json_empty).unwrap();
+        assert!(!parsed.disable_macro_guide);
+
+        // Deserializing with disable_macro_guide = true
+        let json_true = r#"{"disable_macro_guide": true}"#;
+        let parsed_true: AppConfig = serde_json::from_str(json_true).unwrap();
+        assert!(parsed_true.disable_macro_guide);
+
+        // Roundtrip serialization
+        let custom = AppConfig {
+            disable_macro_guide: true,
+            ..Default::default()
+        };
+        let serialized = serde_json::to_string(&custom).unwrap();
+        let deserialized: AppConfig = serde_json::from_str(&serialized).unwrap();
+        assert!(deserialized.disable_macro_guide);
+    }
 }

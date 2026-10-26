@@ -1,7 +1,117 @@
+use serde::{Deserialize, Serialize};
 use std::io::Read;
 use std::sync::mpsc::{channel, Receiver};
 use std::thread;
 use std::time::Duration;
+
+pub const FONT_CATALOG: &[&str] = &[
+    "Inter",
+    "Roboto",
+    "Poppins",
+    "Montserrat",
+    "Open Sans",
+    "Lato",
+    "Oswald",
+    "Raleway",
+    "Nunito",
+    "Playfair Display",
+    "Fira Code",
+    "JetBrains Mono",
+    "Space Grotesk",
+    "Syne",
+    "Clash Display",
+    "General Sans",
+    "Satoshi",
+    "Cabinet Grotesk",
+    "Plus Jakarta Sans",
+    "Urbanist",
+    "Outfit",
+    "Sora",
+    "Lexend",
+    "Figtree",
+    "Manrope",
+    "Work Sans",
+    "DM Sans",
+    "Rubik",
+    "Epilogue",
+    "Archivo",
+    "Bricolage Grotesque",
+    "Chivo",
+    "Cinzel",
+    "Bebas Neue",
+    "Red Hat Display",
+    "Barlow",
+    "Maven Pro",
+    "Kanit",
+    "Space Mono",
+    "IBM Plex Sans",
+    "IBM Plex Mono",
+    "Overpass",
+    "Titillium Web",
+    "Exo 2",
+    "Quantico",
+    "Rajdhani",
+    "Chakra Petch",
+    "Michroma",
+    "Audiowide",
+    "Orbitron",
+    "Cinzel Decorative",
+    "Prompt",
+    "Teko",
+    "Comfortaa",
+    "Caveat",
+    "Righteous",
+    "Permanent Marker",
+    "Great Vibes",
+    "Fredoka",
+];
+
+pub fn get_random_font_batch(count: usize, already_shown: &mut Vec<String>) -> Vec<String> {
+    use std::time::SystemTime;
+    let seed = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(123456789) as u64;
+
+    let mut available: Vec<&str> = FONT_CATALOG
+        .iter()
+        .copied()
+        .filter(|&f| !already_shown.iter().any(|s| s.eq_ignore_ascii_case(f)))
+        .collect();
+
+    if available.is_empty() {
+        already_shown.clear();
+        available = FONT_CATALOG.to_vec();
+    }
+
+    let mut rng = seed;
+    let n = available.len();
+    for i in (1..n).rev() {
+        rng = rng
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        let j = ((rng >> 32) as usize) % (i + 1);
+        available.swap(i, j);
+    }
+
+    let chosen: Vec<String> = available
+        .iter()
+        .take(count)
+        .map(|&s| s.to_string())
+        .collect();
+    for f in &chosen {
+        already_shown.push(f.clone());
+    }
+    chosen
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FontVariant {
+    pub label: String,
+    pub weight: u16,
+    pub italic: bool,
+    pub download_url: String,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FontSourceOption {
@@ -226,7 +336,7 @@ fn fetch_fontshare(name: &str) -> Result<(String, String, Vec<u8>), String> {
     ))
 }
 
-fn fetch_direct_url(url: &str) -> Result<(String, String, Vec<u8>), String> {
+pub fn fetch_direct_url(url: &str) -> Result<(String, String, Vec<u8>), String> {
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(8))
         .user_agent("curl/7.68.0")
@@ -354,6 +464,141 @@ pub fn start_verify_font(
     rx
 }
 
+/// Fetch available variants (weights and styles) for a given font family
+pub fn fetch_font_variants(
+    input: &str,
+    source_opt: FontSourceOption,
+) -> Result<Vec<FontVariant>, String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return Err("Font name cannot be blank".to_string());
+    }
+
+    let agent = ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(6))
+        .user_agent("curl/7.68.0")
+        .build();
+
+    let mut variants = Vec::new();
+
+    // 1. Google Fonts attempt
+    if source_opt == FontSourceOption::Auto || source_opt == FontSourceOption::GoogleFonts {
+        let enc = url_encode(trimmed);
+        let urls = [
+            format!("https://fonts.googleapis.com/css?family={enc}:100,200,300,400,500,600,700,800,900,100i,200i,300i,400i,500i,600i,700i,800i,900i"),
+            format!("https://fonts.googleapis.com/css?family={enc}:100,200,300,400,500,600,700,800,900"),
+            format!("https://fonts.googleapis.com/css?family={enc}"),
+        ];
+
+        for css_url in urls {
+            if let Ok(resp) = agent.get(&css_url).call() {
+                if resp.status() == 200 {
+                    if let Ok(css) = resp.into_string() {
+                        parse_css_font_faces(&css, &mut variants);
+                        if !variants.is_empty() {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fontshare attempt
+    if variants.is_empty()
+        && (source_opt == FontSourceOption::Auto || source_opt == FontSourceOption::Fontshare)
+    {
+        let slug = to_kebab_case(trimmed);
+        let css_url = format!(
+            "https://api.fontshare.com/v2/css?f[]={slug}@100,200,300,400,500,600,700,800,900"
+        );
+        if let Ok(resp) = agent.get(&css_url).call() {
+            if resp.status() == 200 {
+                if let Ok(css) = resp.into_string() {
+                    parse_css_font_faces(&css, &mut variants);
+                }
+            }
+        }
+    }
+
+    if variants.is_empty() {
+        return Err(format!("No variants found for font '{}'", trimmed));
+    }
+
+    variants.sort_by(|a, b| a.italic.cmp(&b.italic).then(a.weight.cmp(&b.weight)));
+    variants.dedup_by(|a, b| a.weight == b.weight && a.italic == b.italic);
+
+    Ok(variants)
+}
+
+fn parse_css_font_faces(css: &str, out: &mut Vec<FontVariant>) {
+    for block in css.split("@font-face") {
+        if block.trim().is_empty() {
+            continue;
+        }
+        let weight = extract_font_weight(block).unwrap_or(400);
+        let italic = block.contains("font-style: italic");
+        if let Some(mut url) = extract_ttf_url(block) {
+            if url.starts_with("//") {
+                url = format!("https:{url}");
+            }
+            let label = format_variant_label(weight, italic);
+            out.push(FontVariant {
+                label,
+                weight,
+                italic,
+                download_url: url,
+            });
+        }
+    }
+}
+
+fn extract_font_weight(block: &str) -> Option<u16> {
+    if let Some(pos) = block.find("font-weight:") {
+        let after = &block[pos + 12..];
+        let num_str: String = after
+            .chars()
+            .take_while(|c| c.is_whitespace() || c.is_ascii_digit())
+            .filter(|c| c.is_ascii_digit())
+            .collect();
+        return num_str.parse().ok();
+    }
+    None
+}
+
+fn format_variant_label(weight: u16, italic: bool) -> String {
+    let name = match weight {
+        100 => "Thin",
+        200 => "ExtraLight",
+        300 => "Light",
+        400 => "Regular",
+        500 => "Medium",
+        600 => "SemiBold",
+        700 => "Bold",
+        800 => "ExtraBold",
+        900 => "Black",
+        _ => "Custom",
+    };
+    if italic {
+        format!("{name} {weight} Italic")
+    } else {
+        format!("{name} {weight}")
+    }
+}
+
+/// Spawns background thread for non-blocking font variant discovery
+pub fn start_fetch_font_variants(
+    input: String,
+    source_opt: FontSourceOption,
+) -> Receiver<Result<Vec<FontVariant>, String>> {
+    let (tx, rx) = channel();
+    thread::spawn(move || {
+        let res = fetch_font_variants(&input, source_opt);
+        let _ = tx.send(res);
+    });
+    rx
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,5 +642,21 @@ mod tests {
             FontSourceOption::Fontshare.display_name(),
             "Fontshare (Free Quality Fonts)"
         );
+    }
+
+    #[test]
+    fn test_random_font_batch() {
+        let mut shown = Vec::new();
+        let batch1 = get_random_font_batch(10, &mut shown);
+        assert_eq!(batch1.len(), 10);
+        assert_eq!(shown.len(), 10);
+
+        let batch2 = get_random_font_batch(10, &mut shown);
+        assert_eq!(batch2.len(), 10);
+        assert_eq!(shown.len(), 20);
+
+        // Check uniqueness across batches
+        let set: std::collections::HashSet<_> = shown.iter().collect();
+        assert_eq!(set.len(), 20);
     }
 }
