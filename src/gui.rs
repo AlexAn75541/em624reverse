@@ -746,15 +746,7 @@ impl Em624App {
     }
 
     fn sync_from_profile(&mut self) {
-        self.polling_rate_idx = match self.profile.polling_rate() {
-            125 => 0,
-            250 => 1,
-            500 => 2,
-            _ => 3,
-        };
-        self.led_mode = self.profile.led_mode() as usize;
-        self.led_speed = self.profile.led_speed() as u32;
-        self.led_brightness = self.profile.led_brightness() as usize;
+        // [DEMO ONLY] Profile hardware syncing reverted pending packet capture
     }
 
     fn sync_settings_to_profile(&mut self) {
@@ -774,36 +766,10 @@ impl Em624App {
         self.profile.raw[0x00aa] = 0x18; // Feature report enable
         self.profile.raw[0x03f9] &= 0x7f; // Clear button lockout flag
 
-        // Sync Polling Rate (byte 0x0004 bits 5..4 and 0x00A8):
-        let rate_hz = match self.polling_rate_idx {
-            0 => 125,
-            1 => 250,
-            2 => 500,
-            _ => 1000,
-        };
-        self.profile.set_polling_rate(rate_hz);
-        self.profile.raw[0x00a8] = match self.polling_rate_idx {
-            0 => 0x01, // 125 Hz
-            1 => 0x02, // 250 Hz
-            2 => 0x04, // 500 Hz
-            _ => 0x0f, // 1000 Hz
-        };
-
-        // LED lighting registers:
-        // Byte 0x0018: LED lighting effect mode (0=Breathing, 1=Colorful Light, 2=Rainbow, 3=Flow Light, 4=Waltz, 5=4-Seasons, 6=Off)
-        // Byte 0x0007: LED breathing/animation speed (1..5)
-        // Byte 0x0008: LED brightness (0=Full, 1=Half)
-        self.profile.set_led_mode(self.led_mode as u8);
-        self.profile.set_led_speed(self.led_speed as u8);
-        self.profile.set_led_brightness(self.led_brightness as u8);
-
-        // Sync Fire Key configuration and compile rapid fire bytecode
-        self.profile.set_fire_key(
-            self.fire_mode as u8,
-            self.fire_repeat as u8,
-            self.fire_interval as u8,
-            self.fire_continuous,
-        );
+        // Sensor Orientation Safeguard:
+        // Byte 0x0006 is 0x7F (180° PCB mounting orientation, standard normal axes).
+        self.profile.raw[0x0006] = 0x7f;
+        self.profile.raw[0x0007] = 0x7f;
 
         // Sync OS mouse dynamics (Pointer Speed, Double Click, Wheel Scroll Lines)
         self.apply_live_os_mouse_settings();
@@ -1196,6 +1162,7 @@ impl Em624App {
         }
     }
 
+    #[allow(dead_code)]
     fn apply_and_cache_binding(&mut self, slot_idx: usize, is_gaming: bool) {
         if let Some(bytes) = self.rebind_candidate {
             let base_off = if is_gaming { 0x00f1 } else { 0x00c0 };
@@ -1755,7 +1722,10 @@ impl Em624App {
         } else {
             Strings::office_mode_title(self.config.language)
         };
-        let title = Strings::rebind_title(self.config.language, btn_num, mode_label);
+        let title = format!(
+            "{} [UNFINISHED - DEMO UI ONLY]",
+            Strings::rebind_title(self.config.language, btn_num, mode_label)
+        );
 
         egui::Window::new(title)
             .collapsible(false)
@@ -1763,6 +1733,15 @@ impl Em624App {
             .anchor(egui::Align2::CENTER_CENTER, Vec2::ZERO)
             .show(ctx, |ui| {
                 ui.set_width(460.0);
+
+                ui.label(
+                    egui::RichText::new(
+                        "Demo UI only: Hardware button remapping failed in hardware testing. Buttons will not be flashed.",
+                    )
+                    .small()
+                    .color(Color32::from_rgb(255, 177, 66)),
+                );
+                ui.add_space(4.0);
 
                 // Step 1: Category Selection
                 ui.label(
@@ -1859,7 +1838,16 @@ impl Em624App {
             });
 
         if apply_binding {
-            self.apply_and_cache_binding(slot_idx, is_gaming);
+            // [DEMO ONLY] Reverted mutating hardware profile. Show status notice and close.
+            let desc = self
+                .rebind_candidate
+                .as_ref()
+                .map(format_binding_desc)
+                .unwrap_or_default();
+            self.status_message = format!(
+                "Selected '{}' [Demo UI only: hardware button remap failed in testing].",
+                desc
+            );
             self.editing_slot = None;
         } else if close_modal {
             self.editing_slot = None;
@@ -2509,44 +2497,29 @@ impl Em624App {
             ui.vertical(|ui| {
                 ui.set_width(330.0);
                 ui.group(|ui| {
-                    ui.heading("Fire Key Setting");
+                    ui.heading("Fire Key Setting [UNFINISHED - DEMO UI ONLY]");
+                    ui.label(
+                        egui::RichText::new(
+                            "Demo UI only: hardware fire key bytecode failed in testing.",
+                        )
+                        .small()
+                        .color(pal.text_secondary),
+                    );
                     ui.horizontal(|ui| {
                         ui.radio_value(&mut self.fire_mode, 0, "Mode 1");
                         ui.radio_value(&mut self.fire_mode, 1, "Mode 2");
                         ui.radio_value(&mut self.fire_mode, 2, "Mode 3");
                     });
                     ui.add_space(6.0);
-                    let mut fire_changed = false;
                     ui.horizontal(|ui| {
                         ui.label("Repeat Count:");
-                        if ui
-                            .add(egui::Slider::new(&mut self.fire_repeat, 1..=20))
-                            .changed()
-                        {
-                            fire_changed = true;
-                        }
+                        ui.add(egui::Slider::new(&mut self.fire_repeat, 1..=20));
                     });
                     ui.horizontal(|ui| {
                         ui.label("Interval (ms):");
-                        if ui
-                            .add(egui::Slider::new(&mut self.fire_interval, 10..=100))
-                            .changed()
-                        {
-                            fire_changed = true;
-                        }
+                        ui.add(egui::Slider::new(&mut self.fire_interval, 10..=100));
                     });
-                    if ui.checkbox(&mut self.fire_continuous, "Continuous Fire").changed() {
-                        fire_changed = true;
-                    }
-                    if fire_changed {
-                        self.profile.set_fire_key(
-                            self.fire_mode as u8,
-                            self.fire_repeat as u8,
-                            self.fire_interval as u8,
-                            self.fire_continuous,
-                        );
-                        self.save_to_cached_profile();
-                    }
+                    ui.checkbox(&mut self.fire_continuous, "Continuous Fire");
                 });
 
                 ui.add_space(8.0);
@@ -2719,39 +2692,22 @@ impl Em624App {
 
                 ui.add_space(8.0);
                 ui.group(|ui| {
-                    ui.heading("USB Report Rate (Polling Speed)");
-                    ui.label("Select active polling frequency (interchangeable):");
+                    ui.heading("USB Report Rate (Polling Speed) [UNFINISHED - DEMO UI ONLY]");
+                    ui.label(
+                        egui::RichText::new(
+                            "Demo UI only: hardware polling rate write failed in testing.",
+                        )
+                        .small()
+                        .color(pal.text_secondary),
+                    );
                     ui.add_space(6.0);
 
-                    let mut rate_changed = false;
                     ui.horizontal(|ui| {
-                        if ui.radio_value(&mut self.polling_rate_idx, 0, "125 Hz (8 ms)").changed() {
-                            rate_changed = true;
-                        }
-                        if ui.radio_value(&mut self.polling_rate_idx, 1, "250 Hz (4 ms)").changed() {
-                            rate_changed = true;
-                        }
-                        if ui.radio_value(&mut self.polling_rate_idx, 2, "500 Hz (2 ms)").changed() {
-                            rate_changed = true;
-                        }
-                        if ui.radio_value(&mut self.polling_rate_idx, 3, "1000 Hz (1 ms)").changed() {
-                            rate_changed = true;
-                        }
+                        ui.radio_value(&mut self.polling_rate_idx, 0, "125 Hz (8 ms)");
+                        ui.radio_value(&mut self.polling_rate_idx, 1, "250 Hz (4 ms)");
+                        ui.radio_value(&mut self.polling_rate_idx, 2, "500 Hz (2 ms)");
+                        ui.radio_value(&mut self.polling_rate_idx, 3, "1000 Hz (1 ms)");
                     });
-                    if rate_changed {
-                        let hz = match self.polling_rate_idx {
-                            0 => 125,
-                            1 => 250,
-                            2 => 500,
-                            _ => 1000,
-                        };
-                        self.profile.set_polling_rate(hz);
-                        self.save_to_cached_profile();
-                        self.status_message = format!(
-                            "Polling rate set to {} Hz. Click 'Flash to Mouse' to commit to hardware.",
-                            hz
-                        );
-                    }
                 });
             });
         });
@@ -2760,102 +2716,50 @@ impl Em624App {
     fn render_led_tab(&mut self, ui: &mut egui::Ui) {
         let pal = self.palette();
         ui.add_space(6.0);
-        ui.heading("LED Backlight & Lighting Effects (Unfinished)");
+        ui.heading("LED Backlight & Lighting Effects [UNFINISHED - DEMO UI ONLY]");
         ui.label(
-            egui::RichText::new("Configure RGB breathing, speed, mode, and brightness:")
-                .small()
-                .color(pal.text_secondary),
+            egui::RichText::new(
+                "Demo UI only: Hardware register control failed in hardware testing. Awaiting clean packet capture.",
+            )
+            .small()
+            .color(pal.text_secondary),
         );
         ui.add_space(14.0);
 
-        let mut led_changed = false;
-
         ui.group(|ui| {
-            ui.heading("LED Breathing Speed");
+            ui.heading("LED Breathing Speed (Demo)");
             ui.horizontal(|ui| {
                 ui.label("Slow (1)");
-                if ui
-                    .add(egui::Slider::new(&mut self.led_speed, 1..=5).show_value(true))
-                    .changed()
-                {
-                    led_changed = true;
-                }
+                ui.add(egui::Slider::new(&mut self.led_speed, 1..=5).show_value(true));
                 ui.label("Fast (5)");
             });
         });
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("LED Mode");
+            ui.heading("LED Mode (Demo)");
             ui.horizontal(|ui| {
-                if ui.radio_value(&mut self.led_mode, 0, "Breathing").changed() {
-                    led_changed = true;
-                }
-                if ui
-                    .radio_value(&mut self.led_mode, 1, "Colorful Light")
-                    .changed()
-                {
-                    led_changed = true;
-                }
-                if ui.radio_value(&mut self.led_mode, 2, "Rainbow").changed() {
-                    led_changed = true;
-                }
+                ui.radio_value(&mut self.led_mode, 0, "Breathing");
+                ui.radio_value(&mut self.led_mode, 1, "Colorful Light");
+                ui.radio_value(&mut self.led_mode, 2, "Rainbow");
             });
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui
-                    .radio_value(&mut self.led_mode, 3, "Flow Light")
-                    .changed()
-                {
-                    led_changed = true;
-                }
-                if ui.radio_value(&mut self.led_mode, 4, "Waltz").changed() {
-                    led_changed = true;
-                }
-                if ui.radio_value(&mut self.led_mode, 5, "4-Seasons").changed() {
-                    led_changed = true;
-                }
-                if ui.radio_value(&mut self.led_mode, 6, "Off").changed() {
-                    led_changed = true;
-                }
+                ui.radio_value(&mut self.led_mode, 3, "Flow Light");
+                ui.radio_value(&mut self.led_mode, 4, "Waltz");
+                ui.radio_value(&mut self.led_mode, 5, "4-Seasons");
+                ui.radio_value(&mut self.led_mode, 6, "Off");
             });
         });
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("LED Brightness");
+            ui.heading("LED Brightness (Demo)");
             ui.horizontal(|ui| {
-                if ui
-                    .radio_value(&mut self.led_brightness, 0, "Full Brightness (100%)")
-                    .changed()
-                {
-                    led_changed = true;
-                }
-                if ui
-                    .radio_value(&mut self.led_brightness, 1, "Half Brightness (50%)")
-                    .changed()
-                {
-                    led_changed = true;
-                }
+                ui.radio_value(&mut self.led_brightness, 0, "Full Brightness (100%)");
+                ui.radio_value(&mut self.led_brightness, 1, "Half Brightness (50%)");
             });
         });
-
-        if led_changed {
-            self.profile.set_led_mode(self.led_mode as u8);
-            self.profile.set_led_speed(self.led_speed as u8);
-            self.profile.set_led_brightness(self.led_brightness as u8);
-            self.save_to_cached_profile();
-            self.status_message = format!(
-                "LED Settings updated: Mode {}, Speed {}, Brightness {}. Click 'Flash to Mouse' to commit to hardware.",
-                self.led_mode,
-                self.led_speed,
-                if self.led_brightness == 0 {
-                    "Full"
-                } else {
-                    "Half"
-                }
-            );
-        }
     }
 
     fn render_macro_tab(&mut self, ui: &mut egui::Ui) {
@@ -3146,35 +3050,9 @@ impl Em624App {
 
                                 ui.add_space(12.0);
                                 ui.separator();
-                                ui.label("EEPROM Hardware Bank:");
-                                if ui.button("Write Macro to Profile").clicked() {
-                                    if let Some(idx) = self.selected_macro {
-                                        if let Some(macro_item) = self.macro_bank.macros.get(idx) {
-                                            let res = macro_item
-                                                .compile_bytecode()
-                                                .map(|code| (macro_item.name.clone(), macro_item.actions.len(), code));
-                                            match res {
-                                                Ok((name, count, bytecode)) => {
-                                                    self.profile.write_macro_bytecode(0, &bytecode);
-                                                    self.save_to_cached_profile();
-                                                    self.status_message = format!(
-                                                        "Macro '{}' compiled ({} actions) into Profile Slot 0 (0x01F0 / 0x0400). Click 'Apply to Mouse' to flash hardware.",
-                                                        name, count
-                                                    );
-                                                    self.log_debug(&format!(
-                                                        "[MACRO] Compiled '{}' bytecode (256B) into profile slots 0x01F0 and 0x0400",
-                                                        name
-                                                    ));
-                                                }
-                                                Err(e) => {
-                                                    self.status_message = format!("Macro compilation error: {}", e);
-                                                    self.log_debug(&format!("[MACRO_ERR] {}", e));
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        self.status_message = "Please select a macro from the library first.".to_string();
-                                    }
+                                ui.label("EEPROM Hardware Bank [UNFINISHED - DEMO UI ONLY]:");
+                                if ui.button("Write Macro to Profile (Demo)").clicked() {
+                                    self.status_message = "Demo UI only: hardware macro bytecode write failed in hardware testing. Profile was not modified.".to_string();
                                 }
 
                                 ui.add_space(6.0);

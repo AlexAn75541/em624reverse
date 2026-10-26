@@ -210,10 +210,6 @@ impl Em624Device {
             sleep(Duration::from_millis(5));
         }
 
-        // Step 2.5: Soft-apply settings into MCU active registers (0x40, 0x0D)
-        // Matches official Delphi FlashMemoryWriteRoutine (0x005b7c8c / 0x005607f8)
-        let _ = self.apply_soft_reset();
-
         // Step 3: Commit flash write (0x40, 0x0E)
         let mut commit_cmd = [0u8; 8];
         commit_cmd[0] = REPORT_ID_CMD;
