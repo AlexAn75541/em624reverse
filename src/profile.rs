@@ -519,7 +519,9 @@ impl MouseProfile {
 
         // Hardware safety registers
         self.raw[0x0006] = 0x7f; // Sensor orientation: 0x7F (180 deg physical PCB sensor mounting angle, bits 7..6 = 01)
-        self.raw[0x0007] = 0x7f; // Hardware default register byte 7
+        if self.raw[0x0007] == 0 || self.raw[0x0007] > 5 {
+            self.raw[0x0007] = 3; // Default LED speed
+        }
         self.raw[4] = 0xdf; // 5 active DPI stages, mask stage 6 MCU lockup
         self.clamp_dpi_nibbles(); // Clamp DPI steps <= 12 to prevent sensor lookup overflow
         self.raw[0x00a4] = 0x01; // Force Gaming Mode (active button matrix)
@@ -542,7 +544,9 @@ impl MouseProfile {
         // Byte 0x0006 must be 0x7F (bits 7..6 = 01, matching the physical 180° PCB sensor mounting angle).
         // If set to 0x00 (bits 7..6 = 00 = 270°), the DSP rotates motion 90° out-of-phase, swapping Up/Down with Left/Right.
         self.raw[0x0006] = 0x7f;
-        self.raw[0x0007] = 0x7f;
+        if self.raw[0x0007] == 0 || self.raw[0x0007] > 5 {
+            self.raw[0x0007] = 3; // Default LED speed
+        }
 
         // 1. Mask out stage 6 trap: byte 4 &= 0xDF
         self.raw[4] &= 0xdf;
@@ -557,6 +561,139 @@ impl MouseProfile {
         self.recalculate_checksums();
 
         // 5. Refresh decoded stages and button bindings
+        self.refresh_stages();
+    }
+
+    /// Get current USB polling rate (125, 250, 500, 1000 Hz) from registers 0x0004 (bits 4..5) and 0x0008 (bit 3)
+    pub fn get_polling_rate(&self) -> u16 {
+        if self.raw.len() != PROFILE_SIZE {
+            return 1000;
+        }
+        let b4 = self.raw[0x0004];
+        let b8 = self.raw[0x0008];
+        let not_125 = (b8 >> 3) & 0x01;
+        if not_125 == 0 {
+            125
+        } else {
+            let rate_bits = (b4 >> 4) & 0x03;
+            match rate_bits {
+                0 => 125,
+                1 => 250,
+                2 => 500,
+                3 => 1000,
+                _ => 1000,
+            }
+        }
+    }
+
+    /// Set USB polling rate (125, 250, 500, 1000 Hz) using safe read-modify-write across 0x0004 and 0x0008.
+    /// Preserves active DPI stage bitmask in 0x0004 (bits 0..3) and LED brightness in 0x0008.
+    pub fn set_polling_rate(&mut self, rate_hz: u16) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        let (rate_bits, not_125): (u8, u8) = match rate_hz {
+            125 => (0b00, 0),
+            250 => (0b01, 1),
+            500 => (0b10, 1),
+            1000 => (0b11, 1),
+            _ => (0b11, 1),
+        };
+        // 0x0004: preserve bits 0..3 (DPI stages bitmask) and bits 6..7
+        self.raw[0x0004] = (self.raw[0x0004] & 0xCF) | (rate_bits << 4);
+        // 0x0008: preserve all bits except bit 3
+        self.raw[0x0008] = (self.raw[0x0008] & !0x08) | (not_125 << 3);
+        self.recalculate_checksums();
+    }
+
+    /// Get LED mode index (0..6)
+    pub fn get_led_mode(&self) -> u8 {
+        if self.raw.len() != PROFILE_SIZE {
+            return 0;
+        }
+        let mode_a5 = self.raw[0x00a5];
+        if (mode_a5 & 0x80) == 0 {
+            6 // Off
+        } else {
+            mode_a5 & 0x07
+        }
+    }
+
+    /// Set LED mode (0..6): 0=CPI Breathing, 1=Colorful, 2=Neon/Breathing, 3=Dynamic/Flow, 4=Waltz, 5=4-Seasons, 6=Off
+    pub fn set_led_mode(&mut self, mode: u8) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        let clean_mode = mode.min(6);
+        self.raw[0x0018] = clean_mode;
+        if clean_mode == 6 {
+            // Master LED disable: clear bit 7
+            self.raw[0x00a5] = 0x00;
+        } else {
+            // Master LED enable: bit 7 set + effect index
+            self.raw[0x00a5] = 0x80 | (clean_mode & 0x07);
+        }
+        self.recalculate_checksums();
+    }
+
+    /// Get LED speed (1..5)
+    pub fn get_led_speed(&self) -> u8 {
+        if self.raw.len() != PROFILE_SIZE {
+            return 3;
+        }
+        self.raw[0x0007].clamp(1, 5)
+    }
+
+    /// Set LED speed (1..5)
+    pub fn set_led_speed(&mut self, speed: u8) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        self.raw[0x0007] = speed.clamp(1, 5);
+        self.recalculate_checksums();
+    }
+
+    /// Get LED brightness (0 = Full, 1 = Half)
+    pub fn get_led_brightness(&self) -> u8 {
+        if self.raw.len() != PROFILE_SIZE {
+            return 0;
+        }
+        self.raw[0x0008] & 0x01
+    }
+
+    /// Set LED brightness (false = Full / 0, true = Half / 1)
+    pub fn set_led_brightness(&mut self, half: bool) {
+        if self.raw.len() != PROFILE_SIZE {
+            return;
+        }
+        if half {
+            self.raw[0x0008] |= 0x01;
+        } else {
+            self.raw[0x0008] &= !0x01;
+        }
+        self.recalculate_checksums();
+    }
+
+    /// Set keybinding for physical button slot (0..11) and synchronize to both Office and Gaming tables
+    pub fn set_button_binding(&mut self, slot_idx: usize, binding: [u8; 4]) {
+        if self.raw.len() != PROFILE_SIZE || slot_idx >= 12 {
+            return;
+        }
+        let office_offset = 0x00c0 + slot_idx * 4;
+        let gaming_offset = 0x00f1 + slot_idx * 4;
+
+        self.raw[office_offset..office_offset + 4].copy_from_slice(&binding);
+        self.raw[gaming_offset..gaming_offset + 4].copy_from_slice(&binding);
+
+        self.raw[0x00a4] = 0x01; // Gaming Mode active
+        self.raw[0x00a8] = 0x0f; // Enable button matrix
+        self.raw[0x00aa] = 0x18; // Feature report enable
+
+        self.recalculate_checksums();
+    }
+
+    /// Refresh decoded button bindings and DPI stage structures from raw buffer
+    pub fn refresh_decoded_buttons(&mut self) {
         self.refresh_stages();
     }
 
@@ -781,5 +918,55 @@ mod tests {
 
         assert_eq!(&profile.raw[0x01f0..0x01f8], &dummy_code);
         assert_eq!(&profile.raw[0x0400..0x0408], &dummy_code);
+    }
+
+    #[test]
+    fn test_hardware_register_setters() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let mut profile = MouseProfile::from_bytes(baseline).unwrap();
+
+        // 1. Polling Rate
+        profile.set_polling_rate(125);
+        assert_eq!(profile.get_polling_rate(), 125);
+        assert_eq!((profile.raw[0x0008] >> 3) & 0x01, 0);
+
+        profile.set_polling_rate(500);
+        assert_eq!(profile.get_polling_rate(), 500);
+        assert_eq!((profile.raw[0x0008] >> 3) & 0x01, 1);
+        assert_eq!((profile.raw[0x0004] >> 4) & 0x03, 0b10);
+
+        profile.set_polling_rate(1000);
+        assert_eq!(profile.get_polling_rate(), 1000);
+        assert_eq!((profile.raw[0x0008] >> 3) & 0x01, 1);
+        assert_eq!((profile.raw[0x0004] >> 4) & 0x03, 0b11);
+
+        // 2. LED Mode and Speed
+        profile.set_led_mode(3); // Dynamic
+        assert_eq!(profile.get_led_mode(), 3);
+        assert_eq!(profile.raw[0x00a5], 0x83);
+
+        profile.set_led_mode(6); // Off
+        assert_eq!(profile.get_led_mode(), 6);
+        assert_eq!(profile.raw[0x00a5], 0x00);
+
+        profile.set_led_speed(4);
+        assert_eq!(profile.get_led_speed(), 4);
+        assert_eq!(profile.raw[0x0007], 4);
+
+        // 3. Button Remap
+        let key_a = [0x02, 0x00, 0x04, 0x00];
+        profile.set_button_binding(1, key_a); // Slot 2 Forward
+        assert_eq!(&profile.raw[0x00c4..0x00c8], &key_a);
+        assert_eq!(&profile.raw[0x00f5..0x00f9], &key_a);
+
+        // Verify checksums valid
+        assert_eq!(
+            MouseProfile::calculate_checksum(&profile.raw[0x00c0..0x00f0]),
+            profile.raw[0x00f0]
+        );
+        assert_eq!(
+            MouseProfile::calculate_checksum(&profile.raw[0x00f1..0x0121]),
+            profile.raw[0x0121]
+        );
     }
 }

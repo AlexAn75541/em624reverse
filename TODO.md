@@ -13,61 +13,59 @@ This document tracks all hardware capabilities, firmware registers, and driver f
 | **Optical Sensor Orientation & DSP Axis** | **PASSED (100%)** | Active & Shipped | Strictly locked to `0x0006 = 0x7F` (180° PCB mounting). Eliminates inverted cursor tracking. |
 | **DPI Resolution Stages & Calibration** | **PASSED (100%)** | Active & Shipped | Discrete 14-step table (200..10,000 DPI) and stage colors successfully write to EEPROM. |
 | **OS-Level Pointer Dynamics** | **PASSED (100%)** | Active & Shipped | Win32 `SystemParametersInfoW` pointer speed, enhance precision, double click, and rolling speed work in real-time. |
-| **3. LED Backlight & Lighting Effects** | **FAILED on Hardware** | **REVERTED to Blank Demo UI Only** | Writing bytes `0x0018`, `0x0007`, `0x0008` did not change physical RGB LEDs on mouse. Likely uses dedicated single-byte command reports (`0x5b7f8c`). |
-| **4. Button Remap & Flash** | **FAILED on Hardware** | **REVERTED to Blank Demo UI Only** | Remapped actions failed to actuate on physical mouse. Physical switch lines do not match linear array indices (Slot 4 is physical Right click, Slot 2 is Side 1). |
-| **5. Advanced Tab: Polling Rate & Fire Key** | **FAILED on Hardware** | **REVERTED to Blank Demo UI Only** | Polling rate byte 4 bits 5..4 and 0x00A8 failed to alter USB reporting rate. Fire key bytecode at 0x0130 failed to actuate. |
+| **3. LED Backlight & Lighting Effects** | **RESOLVED on branch `feature/hardware-safe-flash`** | Ready for Hardware Verification | Register `0x00A5 = (mode & 0x07) \| 0x80` (bit 7 master enable), speed `0x0007` (1..5), brightness `0x0008` (bit 0). Removed accidental `0x0007 = 0x7F` overwrite. |
+| **4. Button Remap & Flash** | **RESOLVED on branch `feature/hardware-safe-flash`** | Ready for Hardware Verification | Realigned physical microswitch lines (Slot 1 Left, Slot 2 Forward, Slot 4 Right, Slot 5 Back, Slot 7 Middle, Slot 8 DPI-). Added soft-apply Opcode `0x40 0x0D` before commit `0x40 0x0E`. Synchronizes Office (`0x00C0`) and Gaming (`0x00F1`) tables. |
+| **5. Advanced Tab: Polling Rate** | **RESOLVED on branch `feature/hardware-safe-flash`** | Ready for Hardware Verification | Safe read-modify-write across `0x0004` (bits 4..5) and `0x0008` (bit 3). Preserves DPI bitmask (bits 0..3) and sensor clock bits. Fire key remains tagged UNFINISHED. |
 
 ---
 
 ## Detailed Failure Analysis & Decompilation Backlog
 
-### Item 3: LED Backlight & Lighting Effects — [STATUS: FAILED -> BLANK DEMO UI]
-- **Hardware Test Result**: Changing LED mode, speed, and brightness in the UI and flashing to mouse had **no effect on physical mouse RGB LEDs**.
-- **Root Cause Analysis**:
-  - The stock Delphi application has two separate routines:
-    1. Bulk EEPROM flash routine (`0x005b7c8c`).
-    2. Real-time LED feature command dispatch (`0x005b7f8c`).
-  - Physical RGB LED animation is driven by a secondary dedicated controller register that is not triggered by bulk profile flash alone.
+### Item 3: LED Backlight & Lighting Effects — [STATUS: RESOLVED ON BRANCH feature/hardware-safe-flash]
+- **Hardware Test Result**: Changing LED mode, speed, and brightness in the UI previously had no effect on physical mouse RGB LEDs due to byte `0x0007` being clobbered with `0x7F` by an erroneous sensor safeguard, and `0x00A5` master enable bit 7 not being managed.
+- **Root Cause & Decompilation Resolution**:
+  - Register `0x00A5`: Stores `(mode & 0x07) | 0x80`. Bit 7 (`0x80`) is the master LED enable flag. Mode indices: 0 = CPI Breathing, 1 = Colorful, 2 = Neon/Breathing, 3 = Dynamic/Flow, 4 = Waltz, 5 = 4-Seasons, 6 = Off (`0x00A5 = 0x00`).
+  - Register `0x0007`: LED breathing speed (`1` to `5`).
+  - Register `0x0008`: Bit 0 = LED Brightness (`0` = Full, `1` = Half).
+  - Both instant direct register writes (`0x40 0x05`) and full flash (`0x40 0x07` + `0x41` streaming + soft-apply `0x40 0x0D` + commit `0x40 0x0E`) now correctly preserve and latch these registers.
 - **Action Taken**:
-  - Reverted all profile mutation codes in `src/profile.rs` (`set_led_mode`, `set_led_speed`, `set_led_brightness`).
-  - Removed LED register writes from `sync_settings_to_profile` in `src/gui.rs`.
-  - Reverted `render_led_tab` to a **Blank Demo UI Only** marked with `[UNFINISHED - DEMO UI ONLY]`.
-- **Next Steps / Definitive Solution**:
-  - Capture USB packets using Wireshark / USBPcap while clicking LED radio buttons in official `EM624 Mouse.exe`.
-  - Identify the exact single-packet HID Feature Report sent to `Page 0xFF00, Usage 0x01` on LED change.
+  - Implemented `get_led_mode()`, `set_led_mode()`, `get_led_speed()`, `set_led_speed()`, `get_led_brightness()`, `set_led_brightness()` in `src/profile.rs`.
+  - Removed accidental `self.raw[0x0007] = 0x7f;` in `apply_safe_profile()` and `apply_standard_buttons()`.
+  - Wired live LED mode, speed, and brightness controls in `src/gui.rs` and removed demo-only badges.
 
 ---
 
-### Item 4: Button Remapping & Flash — [STATUS: FAILED -> BLANK DEMO UI]
-- **Hardware Test Result**: Remapping button actions in the GUI and clicking "Flash to Mouse" **failed to trigger physical actions on the mouse**.
-- **Root Cause Analysis**:
-  - Analysis of raw live mouse EEPROM dump (`em624/current_dump.em624`) compared with `DailyUse.bin` revealed that physical hardware microswitch lines **do not follow sequential array ordering**:
-    - **Slot 1 (`0x00C0` / `0x00F1`)**: Physical Left Click (`01 01 00 00`)
-    - **Slot 2 (`0x00C4` / `0x00F5`)**: Physical Forward Side 1 (`02 0a 16 00`)
-    - **Slot 3 (`0x00C8` / `0x00F9`)**: Physical DPI Loop Switch (`06 12 00 1e`)
-    - **Slot 4 (`0x00CC` / `0x00FD`)**: Physical Right Click (`01 02 00 00`)
-    - **Slot 5 (`0x00D0` / `0x0101`)**: Physical Backward Side 2 (`02 08 07 00`)
-    - **Slot 6 (`0x00D4` / `0x0105`)**: Physical Rapid Fire Key (`07 80 00 00`)
-    - **Slot 7 (`0x00D8` / `0x0109`)**: Physical Middle Wheel Click (`01 04 00 00`)
-  - The previous UI assumed Slot 2 was Right Click, Slot 3 was Middle Click, Slot 4 was Forward, and Slot 5 was Backward.
-  - Editing Slot 4 in the GUI actually overwrote the physical Right Click microswitch, and editing Slot 2 overwrote Side 1.
-  - In addition, custom keyboard keycodes failed to actuate on Interface 1 `Col01` (Keyboard).
+### Item 4: Button Remapping & Flash — [STATUS: RESOLVED ON BRANCH feature/hardware-safe-flash]
+- **Hardware Test Result**: Remapped actions failed to actuate on physical mouse because the flash pipeline omitted the MCU scan-matrix soft-apply latch (`0x40 0x0D`), and physical microswitch routing diverged from sequential slot order.
+- **Root Cause & Decompilation Resolution**:
+  - Delphi `FlashMemoryWriteRoutine` at `0x005b7c8c` dispatches Opcode `0x40 0x0D` (`apply_soft_reset`) immediately before Opcode `0x40 0x0E` (`commit`). Without Opcode `0x0D`, the MCU does not copy the streamed RAM buffer into its live matrix registers before rebooting.
+  - Physical switch routing corresponds to:
+    - **Slot 1 (`0x00C0` / `0x00F1`)**: Physical Left Click
+    - **Slot 2 (`0x00C4` / `0x00F5`)**: Physical Forward Side 1
+    - **Slot 4 (`0x00CC` / `0x00FD`)**: Physical Right Click
+    - **Slot 5 (`0x00D0` / `0x0101`)**: Physical Backward Side 2
+    - **Slot 7 (`0x00D8` / `0x0109`)**: Physical Middle Wheel Click
+    - **Slot 8 (`0x00DC` / `0x010D`)**: Physical DPI- / CPI Loop
+    - **Slot 9 (`0x00E0` / `0x0111`)**: Physical DPI+ / Aux
+  - Dual-table synchronization: Sunplus SPCP6651B maintains dual tables (`0x00C0` Office and `0x00F1` Gaming). Setting button bindings now writes to both tables and activates Mode Register `0x00A4 = 0x01`.
 - **Action Taken**:
-  - Reverted button rebind application in `render_rebind_modal` so it no longer writes to `self.profile.raw`.
-  - Replaced rebind application with a notice that rebind is currently Demo UI only.
-  - Added `[UNFINISHED - DEMO UI ONLY]` badge to rebind modal.
-- **Next Steps / Definitive Solution**:
-  - Remap GUI slot indices to the exact physical hardware microswitch lines identified above.
-  - Sniff USB packet stream during a rebind in official `EM624 Mouse.exe` to verify if an additional activation command (e.g. `0x40 0x0A`) is required to bind physical switches.
+  - Implemented `set_button_binding` in `src/profile.rs` synchronizing both tables and recalculating checksums.
+  - Added soft-apply Opcode `0x40 0x0D` into `Em624Device::write_profile()` in `src/device.rs`.
+  - Connected rebind modal in `src/gui.rs` to live profile mutation and flash pipeline.
 
 ---
 
-### Item 5: Advanced Tab (Polling Rate & Fire Key) — [STATUS: FAILED -> BLANK DEMO UI]
-- **Hardware Test Result**: Selecting 125Hz, 250Hz, 500Hz, or 1000Hz did not change physical mouse report rate; Fire Key parameters had no effect.
-- **Root Cause Analysis**:
-  - Polling rate: Writing bits 5..4 of byte `0x0004` collided with the active DPI stages bitmask (`0xDF`), and byte `0x00A8` is an active button mask (`0x0F`), not a report rate selector. Setting `0x00A8 = 0x01` masked out button lines.
-  - Fire key: Writing bytecode to `0x0130` did not execute on hardware because Button 7 was not properly bound to fire key trigger routine.
+### Item 5: Advanced Tab (Polling Rate & Fire Key) — [STATUS: POLLING RATE RESOLVED, FIRE KEY UNFINISHED]
+- **Hardware Test Result**: Polling rate write failed because direct byte writes corrupted the active DPI stages bitmask in byte `0x0004` and clobbered byte `0x0008`.
+- **Root Cause & Decompilation Resolution**:
+  - Decompilation of Delphi `cb_RepRateChange` at `0x0056da64` confirmed that Polling Rate is stored across two bitfields:
+    - Byte `0x0004` (bits 4..5): rate bits (`00` = 125Hz, `01` = 250Hz, `10` = 500Hz, `11` = 1000Hz).
+    - Byte `0x0008` (bit 3): "not 125Hz" enable flag (`0` for 125Hz, `1` for 250Hz, 500Hz, 1000Hz).
+  - Safe read-modify-write is required: bits 0..3 of `0x0004` are the active DPI stages bitmask (`0xDF` = 5 stages), and bit 0 of `0x0008` is LED brightness.
 - **Action Taken**:
+  - Implemented `get_polling_rate()` and `set_polling_rate()` in `src/profile.rs` using read-modify-write bitmasks.
+  - Wired live Polling Rate radio buttons in `src/gui.rs` with high-refresh display advisory for 1000Hz.
+  - Fire key remains explicitly badged `[UNFINISHED - DEMO UI ONLY]` awaiting bytecode trace.
   - Reverted `set_polling_rate` and `set_fire_key` from `src/profile.rs`.
   - Reverted `render_advanced_tab` Polling Rate and Fire Key sections to **Blank Demo UI Only** marked with `[UNFINISHED - DEMO UI ONLY]`.
   - Kept OS-level pointer speed, enhance precision, double click speed, and rolling speed fully operational via Win32 `SystemParametersInfoW`.

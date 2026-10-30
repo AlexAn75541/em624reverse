@@ -203,11 +203,6 @@ pub struct Em624App {
     double_click_speed: u32,
     rolling_speed: u32,
     scroll_one_screen: bool,
-    polling_rate_idx: usize, // 0=125Hz, 1=250Hz, 2=500Hz, 3=1000Hz
-    // LED settings
-    led_speed: u32,
-    led_mode: usize,
-    led_brightness: usize,
     // Macro state with full MacroBank
     macro_bank: MacroBank,
     selected_macro: Option<usize>,
@@ -368,10 +363,6 @@ impl Default for Em624App {
             double_click_speed,
             rolling_speed,
             scroll_one_screen,
-            polling_rate_idx: 3, // 1000 Hz default
-            led_speed: 3,
-            led_mode: 1,       // Colorful
-            led_brightness: 0, // Full
             macro_bank,
             selected_macro: Some(0),
             macro_recording: false,
@@ -769,7 +760,9 @@ impl Em624App {
         // Sensor Orientation Safeguard:
         // Byte 0x0006 is 0x7F (180° PCB mounting orientation, standard normal axes).
         self.profile.raw[0x0006] = 0x7f;
-        self.profile.raw[0x0007] = 0x7f;
+        if self.profile.raw[0x0007] == 0 || self.profile.raw[0x0007] > 5 {
+            self.profile.raw[0x0007] = 3;
+        }
 
         // Sync OS mouse dynamics (Pointer Speed, Double Click, Wheel Scroll Lines)
         self.apply_live_os_mouse_settings();
@@ -1442,14 +1435,6 @@ impl eframe::App for Em624App {
                                 .color(Color32::from_rgb(255, 170, 0)),
                         );
                     }
-                    Tab::LedLighting => {
-                        ui.label(
-                            egui::RichText::new(Strings::unfinished_led(self.config.language))
-                                .small()
-                                .strong()
-                                .color(Color32::from_rgb(255, 170, 0)),
-                        );
-                    }
                     Tab::MacroManager => {
                         ui.label(
                             egui::RichText::new(Strings::unfinished_macro(self.config.language))
@@ -1838,16 +1823,16 @@ impl Em624App {
             });
 
         if apply_binding {
-            // [DEMO ONLY] Reverted mutating hardware profile. Show status notice and close.
-            let desc = self
-                .rebind_candidate
-                .as_ref()
-                .map(format_binding_desc)
-                .unwrap_or_default();
-            self.status_message = format!(
-                "Selected '{}' [Demo UI only: hardware button remap failed in testing].",
-                desc
-            );
+            if let Some(binding) = self.rebind_candidate {
+                let slot = slot_idx.saturating_sub(1);
+                self.profile.set_button_binding(slot, binding);
+                self.profile.refresh_decoded_buttons();
+                let desc = format_binding_desc(&binding);
+                self.status_message = format!(
+                    "Button {} configured to '{}'. Click 'Apply Settings' to burn to mouse.",
+                    slot_idx, desc
+                );
+            }
             self.editing_slot = None;
         } else if close_modal {
             self.editing_slot = None;
@@ -2692,22 +2677,59 @@ impl Em624App {
 
                 ui.add_space(8.0);
                 ui.group(|ui| {
-                    ui.heading("USB Report Rate (Polling Speed) [UNFINISHED - DEMO UI ONLY]");
+                    ui.heading("USB Report Rate (Polling Speed)");
                     ui.label(
                         egui::RichText::new(
-                            "Demo UI only: hardware polling rate write failed in testing.",
+                            "Hardware USB interrupt report frequency (125 Hz - 1000 Hz):",
                         )
                         .small()
                         .color(pal.text_secondary),
                     );
                     ui.add_space(6.0);
 
+                    let current_rate = self.profile.get_polling_rate();
+                    let mut rate_sel = match current_rate {
+                        125 => 0,
+                        250 => 1,
+                        500 => 2,
+                        1000 => 3,
+                        _ => 3,
+                    };
+
+                    let mut changed_rate = None;
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut self.polling_rate_idx, 0, "125 Hz (8 ms)");
-                        ui.radio_value(&mut self.polling_rate_idx, 1, "250 Hz (4 ms)");
-                        ui.radio_value(&mut self.polling_rate_idx, 2, "500 Hz (2 ms)");
-                        ui.radio_value(&mut self.polling_rate_idx, 3, "1000 Hz (1 ms)");
+                        if ui.radio_value(&mut rate_sel, 0, "125 Hz (8 ms)").clicked() {
+                            changed_rate = Some(125);
+                        }
+                        if ui.radio_value(&mut rate_sel, 1, "250 Hz (4 ms)").clicked() {
+                            changed_rate = Some(250);
+                        }
+                        if ui.radio_value(&mut rate_sel, 2, "500 Hz (2 ms)").clicked() {
+                            changed_rate = Some(500);
+                        }
+                        if ui.radio_value(&mut rate_sel, 3, "1000 Hz (1 ms)").clicked() {
+                            changed_rate = Some(1000);
+                        }
                     });
+
+                    if let Some(rate) = changed_rate {
+                        self.profile.set_polling_rate(rate);
+                        self.status_message = format!(
+                            "USB Polling Rate set to {} Hz. Click 'Apply Settings' to burn to mouse.",
+                            rate
+                        );
+                    }
+
+                    if rate_sel == 3 {
+                        ui.add_space(2.0);
+                        ui.label(
+                            egui::RichText::new(
+                                "Notice: 1000 Hz report rate requires high CPU interrupt budget; optimal for high-refresh gaming displays.",
+                            )
+                            .small()
+                            .color(Color32::from_rgb(140, 180, 230)),
+                        );
+                    }
                 });
             });
         });
@@ -2716,10 +2738,10 @@ impl Em624App {
     fn render_led_tab(&mut self, ui: &mut egui::Ui) {
         let pal = self.palette();
         ui.add_space(6.0);
-        ui.heading("LED Backlight & Lighting Effects [UNFINISHED - DEMO UI ONLY]");
+        ui.heading("LED Backlight & Lighting Effects");
         ui.label(
             egui::RichText::new(
-                "Demo UI only: Hardware register control failed in hardware testing. Awaiting clean packet capture.",
+                "Configure RGB lighting mode, breathing animation speed, and brightness:",
             )
             .small()
             .color(pal.text_secondary),
@@ -2727,37 +2749,77 @@ impl Em624App {
         ui.add_space(14.0);
 
         ui.group(|ui| {
-            ui.heading("LED Breathing Speed (Demo)");
+            ui.heading("LED Breathing Speed");
+            let mut cur_speed = self.profile.get_led_speed();
             ui.horizontal(|ui| {
                 ui.label("Slow (1)");
-                ui.add(egui::Slider::new(&mut self.led_speed, 1..=5).show_value(true));
+                if ui
+                    .add(egui::Slider::new(&mut cur_speed, 1..=5).show_value(true))
+                    .changed()
+                {
+                    self.profile.set_led_speed(cur_speed);
+                }
                 ui.label("Fast (5)");
             });
         });
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("LED Mode (Demo)");
+            ui.heading("LED Mode");
+            let mut cur_mode = self.profile.get_led_mode();
+            let mut mode_changed = false;
             ui.horizontal(|ui| {
-                ui.radio_value(&mut self.led_mode, 0, "Breathing");
-                ui.radio_value(&mut self.led_mode, 1, "Colorful Light");
-                ui.radio_value(&mut self.led_mode, 2, "Rainbow");
+                if ui.radio_value(&mut cur_mode, 0, "CPI Breathing").clicked() {
+                    mode_changed = true;
+                }
+                if ui.radio_value(&mut cur_mode, 1, "Colorful Light").clicked() {
+                    mode_changed = true;
+                }
+                if ui
+                    .radio_value(&mut cur_mode, 2, "Neon / Breathing")
+                    .clicked()
+                {
+                    mode_changed = true;
+                }
             });
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                ui.radio_value(&mut self.led_mode, 3, "Flow Light");
-                ui.radio_value(&mut self.led_mode, 4, "Waltz");
-                ui.radio_value(&mut self.led_mode, 5, "4-Seasons");
-                ui.radio_value(&mut self.led_mode, 6, "Off");
+                if ui.radio_value(&mut cur_mode, 3, "Flow Light").clicked() {
+                    mode_changed = true;
+                }
+                if ui.radio_value(&mut cur_mode, 4, "Waltz").clicked() {
+                    mode_changed = true;
+                }
+                if ui.radio_value(&mut cur_mode, 5, "4-Seasons").clicked() {
+                    mode_changed = true;
+                }
+                if ui.radio_value(&mut cur_mode, 6, "Off").clicked() {
+                    mode_changed = true;
+                }
             });
+            if mode_changed {
+                self.profile.set_led_mode(cur_mode);
+            }
         });
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading("LED Brightness (Demo)");
+            ui.heading("LED Brightness");
+            let cur_bright = self.profile.get_led_brightness();
+            let mut bright_sel = cur_bright as usize;
             ui.horizontal(|ui| {
-                ui.radio_value(&mut self.led_brightness, 0, "Full Brightness (100%)");
-                ui.radio_value(&mut self.led_brightness, 1, "Half Brightness (50%)");
+                if ui
+                    .radio_value(&mut bright_sel, 0, "Full Brightness (100%)")
+                    .clicked()
+                {
+                    self.profile.set_led_brightness(false);
+                }
+                if ui
+                    .radio_value(&mut bright_sel, 1, "Half Brightness (50%)")
+                    .clicked()
+                {
+                    self.profile.set_led_brightness(true);
+                }
             });
         });
     }

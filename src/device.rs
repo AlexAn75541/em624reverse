@@ -210,6 +210,11 @@ impl Em624Device {
             sleep(Duration::from_millis(5));
         }
 
+        // Step 2.5: Soft-apply / latch scan matrix registers before commit (0x40, 0x0D)
+        // Matches official Delphi FlashMemoryWriteRoutine at 0x005b7c8c
+        let _ = self.apply_soft_reset();
+        sleep(Duration::from_millis(15));
+
         // Step 3: Commit flash write (0x40, 0x0E)
         let mut commit_cmd = [0u8; 8];
         commit_cmd[0] = REPORT_ID_CMD;
@@ -286,6 +291,29 @@ impl Em624Device {
         self.send_feature_report(&cmd)
             .context("Failed to send Apply/Soft-Reset command (0x40, 0x0D)")?;
         sleep(Duration::from_millis(15));
+        Ok(())
+    }
+
+    /// Write 1 to 4 raw hardware registers via real-time Opcode 0x40 0x05 (Delphi direct setter)
+    #[allow(dead_code)]
+    pub fn write_registers(&self, start_addr: u8, values: &[u8]) -> Result<()> {
+        if values.is_empty() || values.len() > 4 {
+            bail!("write_registers accepts 1 to 4 bytes, got {}", values.len());
+        }
+        let mut cmd = [0u8; 8];
+        cmd[0] = REPORT_ID_CMD; // 0x40
+        cmd[1] = 0x05; // Opcode 0x05 (Direct register write)
+        cmd[2] = 0x00;
+        cmd[3] = start_addr; // Target register address
+        for (i, &v) in values.iter().enumerate() {
+            cmd[4 + i] = v;
+        }
+        cmd[7] = values.len() as u8; // Byte count
+        self.send_feature_report(&cmd).context(format!(
+            "Failed to write register 0x{:02X} via 0x40 0x05",
+            start_addr
+        ))?;
+        sleep(Duration::from_millis(10));
         Ok(())
     }
 }
