@@ -32,7 +32,7 @@
 - [x] Mode-synchronized button flashing: dual table sync (`0x00C0` Office & `0x00F1` Gaming) + `0x00A4` active mode byte.
 - [x] Advanced sensor tuning: 14 calibrated DPI steps up to 10,000 DPI, Stage 6 safety lock, interchangeable polling rates (`125Hz`, `250Hz`, `500Hz`, `1000Hz` with read-modify-write on `0x0004` & `0x0008`).
 - [x] Unified Safe Flash Pipeline: Soft-apply Opcode `0x40 0x0D` before Opcode `0x40 0x0E` commit to latch MCU scan matrix.
-- [x] LED Backlight Subsystem: Register `0x00A5 = (mode & 0x07) | 0x80` (bit 7 master enable), speed `0x0007` (1..5), brightness `0x0008` (bit 0).
+- [ ] LED Backlight Subsystem [UNFINISHED]: Register `0x00A5 = (mode & 0x07) | 0x80` (bit 7 master enable), speed `0x0007` (1..5), brightness `0x0008` (bit 0). Staged in profile; awaiting live hardware verification.
 - [x] Button Remap Physical Alignment: Mapped physical switch routing (Slot 1 Left, Slot 2 Forward, Slot 4 Right, Slot 5 Back, Slot 7 Middle, Slot 8 DPI-) with dual-table sync (`0x00C0` & `0x00F1`).
 - [x] Cloud typography service with Google Fonts and Fontshare verification and disk caching.
 - [x] Free window resizing and dimension presets in settings.

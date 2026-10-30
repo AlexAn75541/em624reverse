@@ -2736,15 +2736,15 @@ impl Em624App {
     }
 
     fn render_led_tab(&mut self, ui: &mut egui::Ui) {
-        let pal = self.palette();
+        let _pal = self.palette();
         ui.add_space(6.0);
-        ui.heading("LED Backlight & Lighting Effects");
+        ui.heading("LED Backlight & Lighting Effects [UNFINISHED]");
         ui.label(
             egui::RichText::new(
-                "Configure RGB lighting mode, breathing animation speed, and brightness:",
+                "NOTICE: LED hardware register protocol is partially reverse-engineered and marked UNFINISHED. Settings are staged in profile for testing.",
             )
             .small()
-            .color(pal.text_secondary),
+            .color(Color32::from_rgb(255, 170, 0)),
         );
         ui.add_space(14.0);
 

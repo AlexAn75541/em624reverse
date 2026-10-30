@@ -13,7 +13,7 @@ This document tracks all hardware capabilities, firmware registers, and driver f
 | **Optical Sensor Orientation & DSP Axis** | **PASSED (100%)** | Active & Shipped | Strictly locked to `0x0006 = 0x7F` (180° PCB mounting). Eliminates inverted cursor tracking. |
 | **DPI Resolution Stages & Calibration** | **PASSED (100%)** | Active & Shipped | Discrete 14-step table (200..10,000 DPI) and stage colors successfully write to EEPROM. |
 | **OS-Level Pointer Dynamics** | **PASSED (100%)** | Active & Shipped | Win32 `SystemParametersInfoW` pointer speed, enhance precision, double click, and rolling speed work in real-time. |
-| **3. LED Backlight & Lighting Effects** | **RESOLVED on branch `feature/hardware-safe-flash`** | Ready for Hardware Verification | Register `0x00A5 = (mode & 0x07) \| 0x80` (bit 7 master enable), speed `0x0007` (1..5), brightness `0x0008` (bit 0). Removed accidental `0x0007 = 0x7F` overwrite. |
+| **3. LED Backlight & Lighting Effects** | **PARTIALLY RESOLVED** | **[UNFINISHED - Awaiting Live Hardware Verification]** | Register `0x00A5 = (mode & 0x07) \| 0x80` (bit 7 master enable), speed `0x0007` (1..5), brightness `0x0008` (bit 0). Removed accidental `0x0007 = 0x7F` overwrite. Badged `[UNFINISHED]`. |
 | **4. Button Remap & Flash** | **RESOLVED on branch `feature/hardware-safe-flash`** | Ready for Hardware Verification | Realigned physical microswitch lines (Slot 1 Left, Slot 2 Forward, Slot 4 Right, Slot 5 Back, Slot 7 Middle, Slot 8 DPI-). Added soft-apply Opcode `0x40 0x0D` before commit `0x40 0x0E`. Synchronizes Office (`0x00C0`) and Gaming (`0x00F1`) tables. |
 | **5. Advanced Tab: Polling Rate** | **RESOLVED on branch `feature/hardware-safe-flash`** | Ready for Hardware Verification | Safe read-modify-write across `0x0004` (bits 4..5) and `0x0008` (bit 3). Preserves DPI bitmask (bits 0..3) and sensor clock bits. Fire key remains tagged UNFINISHED. |
 
@@ -21,8 +21,8 @@ This document tracks all hardware capabilities, firmware registers, and driver f
 
 ## Detailed Failure Analysis & Decompilation Backlog
 
-### Item 3: LED Backlight & Lighting Effects — [STATUS: RESOLVED ON BRANCH feature/hardware-safe-flash]
-- **Hardware Test Result**: Changing LED mode, speed, and brightness in the UI previously had no effect on physical mouse RGB LEDs due to byte `0x0007` being clobbered with `0x7F` by an erroneous sensor safeguard, and `0x00A5` master enable bit 7 not being managed.
+### Item 3: LED Backlight & Lighting Effects — [STATUS: UNFINISHED - AWAITING VERIFICATION]
+- **Hardware Test Result**: Changing LED mode, speed, and brightness in the UI previously had no effect on physical mouse RGB LEDs due to byte `0x0007` being clobbered with `0x7F` by an erroneous sensor safeguard, and `0x00A5` master enable bit 7 not being managed. Marked as `[UNFINISHED]`.
 - **Root Cause & Decompilation Resolution**:
   - Register `0x00A5`: Stores `(mode & 0x07) | 0x80`. Bit 7 (`0x80`) is the master LED enable flag. Mode indices: 0 = CPI Breathing, 1 = Colorful, 2 = Neon/Breathing, 3 = Dynamic/Flow, 4 = Waltz, 5 = 4-Seasons, 6 = Off (`0x00A5 = 0x00`).
   - Register `0x0007`: LED breathing speed (`1` to `5`).

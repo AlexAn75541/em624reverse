@@ -49,8 +49,8 @@ impl Strings {
 
     pub fn tab_led(lang: Language) -> &'static str {
         match lang {
-            Language::English => "LED Lighting",
-            Language::Vietnamese => "Đèn LED RGB",
+            Language::English => "LED Lighting [UNFINISHED]",
+            Language::Vietnamese => "Đèn LED RGB [CHƯA HOÀN THIỆN]",
         }
     }
 
