@@ -1,7 +1,7 @@
-use super::config::{icon_label, icon_label_colored, icon_label_colored_spaced, Icons, ThemeMode};
+use super::config::{icon_label, icon_label_colored_spaced, Icons, ThemeMode};
 use super::Em624App;
 use crate::i18n::Strings;
-use eframe::egui::{self, Color32, ProgressBar, RichText, Stroke};
+use eframe::egui::{self, Color32, ProgressBar, RichText};
 
 impl Em624App {
     /// 1st Floor: Bottom Action Button Bar (At the very bottom of the window)
@@ -49,45 +49,6 @@ impl Em624App {
                         .clicked()
                     {
                         self.flash_to_mouse();
-                    }
-
-                    // Optional Mode Switcher button
-                    if self.config.show_mode_switcher {
-                        ui.separator();
-
-                        let is_gaming = (self.profile.raw[0x00a4] & 0x0f) != 0;
-                        let mode_btn_text = if is_gaming {
-                            format!("{} [EXP]", Strings::btn_mode_gaming(self.config.language))
-                        } else {
-                            format!("{} [EXP]", Strings::btn_mode_office(self.config.language))
-                        };
-                        let mode_icon = if is_gaming {
-                            Icons::GAMEPAD
-                        } else {
-                            Icons::BRIEFCASE
-                        };
-                        let mode_color = if is_gaming {
-                            Color32::from_rgb(0, 242, 254)
-                        } else {
-                            Color32::from_rgb(46, 213, 115)
-                        };
-                        if ui
-                            .add_enabled(
-                                !busy,
-                                egui::Button::new(icon_label_colored(
-                                    mode_icon,
-                                    &mode_btn_text,
-                                    mode_color,
-                                ))
-                                .stroke(Stroke::new(1.0_f32, pal.card_border)),
-                            )
-                            .on_hover_text(
-                                "Experimental Mode Switcher: Click to toggle between Gaming Mode (0x01) and Office Mode (0x00).",
-                            )
-                            .clicked()
-                        {
-                            self.switch_mode_and_forward(!is_gaming);
-                        }
                     }
 
                     ui.separator();

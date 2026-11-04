@@ -612,6 +612,14 @@ impl Em624App {
             {
                 self.config.allow_stage_6 = allow_s6;
                 self.config.save();
+                if !allow_s6 {
+                    let (num, cur) = self.profile.get_active_dpi_config();
+                    if num > 5 {
+                        self.profile.set_active_dpi_config(5, cur.min(4));
+                        self.profile.recalculate_checksums();
+                        self.save_to_cached_profile();
+                    }
+                }
                 self.sync_settings_to_profile();
             }
 

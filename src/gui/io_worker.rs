@@ -225,6 +225,13 @@ impl Em624App {
     pub fn sync_settings_to_profile(&mut self) {
         self.profile.apply_safe_profile();
 
+        if !self.config.allow_stage_6 {
+            let (num_stages, cur_stage) = self.profile.get_active_dpi_config();
+            if num_stages > 5 {
+                self.profile.set_active_dpi_config(5, cur_stage.min(4));
+            }
+        }
+
         if self.active_tab == Tab::OfficeMode {
             self.profile.raw[0x00a4] = 0x00;
             self.profile.raw[0x00a8] = 0x00;
@@ -289,42 +296,33 @@ impl Em624App {
         } else {
             "Office Mode"
         };
+        self.profile.is_gaming_mode = new_is_gaming;
+        self.active_tab = if new_is_gaming {
+            Tab::GameMode
+        } else {
+            Tab::OfficeMode
+        };
         self.profile.raw[0x00a4] = mode_byte;
         self.sync_settings_to_profile();
         self.profile.raw[0x00a4] = mode_byte;
         self.profile.recalculate_checksums();
         self.save_to_cached_profile();
 
+        self.status_message = format!("Switched to {}.", mode_name);
         self.log_debug(&format!(
-            "[MODE_FORWARD] Switching mouse active mode to: {} (Byte 0x00A4 = 0x{:02X})",
+            "[MODE_FORWARD] Switched UI mode to: {} (Byte 0x00A4 = 0x{:02X})",
             mode_name, mode_byte
         ));
 
-        let api = match HidApi::new() {
-            Ok(a) => a,
-            Err(e) => {
-                self.status_message = format!("HID API Error: {}", e);
-                self.log_debug(&format!("[HID_ERROR] {}", e));
-                return;
-            }
-        };
-
-        match Em624Device::open_auto(&api) {
-            Ok(dev) => match dev.write_registers_3b(0x00a4, &self.profile.raw[0x00a4..0x00c0]) {
-                Ok(()) => {
-                    self.status_message = format!("Switched hardware mode to {}.", mode_name);
-                    self.log_debug("[MODE_FORWARD] Mode switch report delivered to mouse.");
+        // Non-blocking background thread: deliver mode register to mouse without freezing GUI
+        let payload = self.profile.raw[0x00a4..0x00c0].to_vec();
+        std::thread::spawn(move || {
+            if let Ok(api) = HidApi::new() {
+                if let Ok(dev) = Em624Device::open_auto(&api) {
+                    let _ = dev.write_registers_3b(0x00a4, &payload);
                 }
-                Err(e) => {
-                    self.status_message = format!("Mode switch failed: {}", e);
-                    self.log_debug(&format!("[MODE_FORWARD_ERROR] {}", e));
-                }
-            },
-            Err(e) => {
-                self.status_message = format!("Mouse not found: {}", e);
-                self.log_debug(&format!("[MODE_FORWARD_ERROR] {}", e));
             }
-        }
+        });
     }
 
     pub fn repair_sensor_orientation_now(&mut self) {

@@ -150,11 +150,23 @@ impl Em624App {
                                 }
 
                                 let mut active_checked = (i as u8) < num_stages;
-                                if ui.checkbox(&mut active_checked, "").changed() {
+                                if i == 5 && !self.config.allow_stage_6 {
+                                    if ui
+                                        .checkbox(&mut active_checked, "")
+                                        .on_hover_text("Stage 6 is locked by default. Click to unlock (Synchronized with App Settings).")
+                                        .changed()
+                                        && active_checked
+                                    {
+                                        self.config.allow_stage_6 = true;
+                                        self.config.save();
+                                        self.profile.set_active_dpi_config(6, current_stage_idx);
+                                    }
+                                } else if ui.checkbox(&mut active_checked, "").changed() {
+                                    let max_allowed = if self.config.allow_stage_6 { 6 } else { 5 };
                                     let new_num = if active_checked {
-                                        (i as u8 + 1).clamp(1, 6)
+                                        (i as u8 + 1).clamp(1, max_allowed)
                                     } else {
-                                        (i as u8).clamp(1, 6)
+                                        (i as u8).clamp(1, max_allowed)
                                     };
                                     self.profile.set_active_dpi_config(new_num, current_stage_idx);
                                 }
@@ -200,6 +212,27 @@ impl Em624App {
                                 ui.end_row();
                             }
                         });
+
+                    ui.add_space(8.0);
+                    let mut allow_s6 = self.config.allow_stage_6;
+                    if ui
+                        .checkbox(&mut allow_s6, "Enable 6th DPI Stage (Synchronized with App Settings)")
+                        .on_hover_text(
+                            "When disabled, mouse DPI stages are safely capped to 5 steps (preventing Stage 6 firmware conflicts). When enabled, unlocks full 6 stages across all tabs.",
+                        )
+                        .changed()
+                    {
+                        self.config.allow_stage_6 = allow_s6;
+                        self.config.save();
+                        if !allow_s6 {
+                            let (num, cur) = self.profile.get_active_dpi_config();
+                            if num > 5 {
+                                self.profile.set_active_dpi_config(5, cur.min(4));
+                                self.profile.recalculate_checksums();
+                                self.save_to_cached_profile();
+                            }
+                        }
+                    }
                 });
 
                 ui.add_space(8.0);

@@ -4,6 +4,7 @@ pub mod config;
 pub mod io_worker;
 pub mod led_tab;
 pub mod macro_tab;
+pub mod mode_controller;
 pub mod rebind_modal;
 pub mod settings_tab;
 pub mod status_bar;
@@ -739,16 +740,10 @@ impl eframe::App for Em624App {
 
             // Tab Navigation: Advanced setting is placed immediately to the left of App Settings
             ui.horizontal(|ui| {
-                ui.selectable_value(
-                    &mut self.active_tab,
-                    Tab::GameMode,
-                    icon_label_spaced(Icons::GAMEPAD, Strings::tab_game(self.config.language), 12.0),
-                );
-                ui.selectable_value(
-                    &mut self.active_tab,
-                    Tab::OfficeMode,
-                    icon_label(Icons::BRIEFCASE, Strings::tab_office(self.config.language)),
-                );
+                self.render_mode_tab_item(ui, true);
+                ui.add_space(6.0);
+                self.render_mode_tab_item(ui, false);
+                ui.add_space(6.0);
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::LedLighting,

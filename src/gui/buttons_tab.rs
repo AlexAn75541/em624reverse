@@ -10,22 +10,15 @@ impl Em624App {
         let avail_w = ui.available_width();
         let avail_h = ui.available_height();
 
-        // Responsive proportional column widths based on available width
-        let col1_w = (avail_w * 0.36).clamp(330.0, 460.0);
-        let col2_w = (avail_w * 0.38).clamp(330.0, 480.0);
-        let total_content_w = col1_w + col2_w + 32.0;
-
-        let pad_x = ((avail_w - total_content_w) * 0.5).max(0.0);
-        let pad_y = ((avail_h - 520.0) * 0.40).clamp(8.0, 80.0);
-
-        let mouse_scale = (col2_w / 380.0).clamp(0.85, 1.30);
-
+        // 8-12px padding from both top header and bottom 2nd-floor status bar
+        let pad_y = 10.0;
         ui.add_space(pad_y);
-        ui.horizontal(|ui| {
-            if pad_x > 0.0 {
-                ui.add_space(pad_x);
-            }
 
+        // Proportional column layout: Left button list takes 330..420px, Right mouse map takes remainder
+        let col1_w = (avail_w * 0.38).clamp(320.0, 420.0);
+        let col2_w = (avail_w - col1_w - 24.0).max(280.0);
+
+        ui.horizontal(|ui| {
             // Left Column: Button List
             ui.vertical(|ui| {
                 ui.set_width(col1_w);
@@ -163,21 +156,47 @@ impl Em624App {
                 }
             });
 
-            ui.add_space(24.0);
+            ui.add_space(16.0);
 
             // Right Column: Mouse Visual Map
             ui.vertical(|ui| {
                 ui.set_width(col2_w);
-                self.render_mouse_photo(ui, mouse_scale);
+                self.render_mouse_photo(ui, is_gaming, avail_h - pad_y);
             });
         });
     }
 
-    pub fn render_mouse_photo(&mut self, ui: &mut egui::Ui, scale: f32) {
+    pub fn render_mouse_photo(&mut self, ui: &mut egui::Ui, is_gaming: bool, avail_h: f32) {
         let pal = self.palette();
-        let target_size = Vec2::new(320.0 * scale, 480.0 * scale);
+        let avail_w = ui.available_width();
 
-        let (rect, response) = ui.allocate_exact_size(target_size, egui::Sense::hover());
+        // 8-12px padding clearance from top and bottom bar
+        let max_card_h = (avail_h - 16.0).clamp(240.0, 680.0);
+        let max_card_w = (avail_w - 12.0).max(240.0);
+
+        // Aspect ratio of mouse body in damouse.png (296 x 522 pixels)
+        let mouse_aspect = 296.0 / 522.0; // 0.56705
+
+        // Space inside card: margin for side badges and height padding
+        let inner_avail_w = (max_card_w - 100.0).max(120.0);
+        let inner_avail_h = (max_card_h - 40.0).max(180.0);
+
+        let (base_w, base_h) = if inner_avail_w / inner_avail_h > mouse_aspect {
+            (inner_avail_h * mouse_aspect, inner_avail_h)
+        } else {
+            (inner_avail_w, inner_avail_w / mouse_aspect)
+        };
+
+        // Scale down mouse illustration to ~80% of capacity
+        let img_w = base_w * 0.80;
+        let img_h = base_h * 0.80;
+
+        let scale = (img_h / 380.0).clamp(0.65, 1.25);
+        let card_w = (img_w + 100.0 * scale).min(max_card_w);
+        let card_h = (img_h + 40.0 * scale).min(max_card_h);
+
+        let (rect, _response) =
+            ui.allocate_exact_size(Vec2::new(card_w, card_h), egui::Sense::hover());
         let painter = ui.painter_at(rect);
 
         // Background chassis card
@@ -188,34 +207,60 @@ impl Em624App {
             Stroke::new(1.0_f32, Color32::from_rgb(40, 50, 68)),
         );
 
-        // Paint Mouse Texture
+        // Center mouse texture inside card
+        let img_center = rect.center();
+        let img_rect = Rect::from_center_size(img_center, Vec2::new(img_w, img_h));
+
+        // Paint Mouse Texture with cropped UV to remove dead transparent borders
         if let Some(ref tex) = self.mouse_texture {
-            let img_margin = 12.0 * scale;
-            let img_rect = rect.shrink(img_margin);
+            let u_min = 148.0 / 600.0;
+            let u_max = 444.0 / 600.0;
+            let v_min = 40.0 / 600.0;
+            let v_max = 562.0 / 600.0;
             painter.image(
                 tex.id(),
                 img_rect,
-                Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0)),
+                Rect::from_min_max(Pos2::new(u_min, v_min), Pos2::new(u_max, v_max)),
                 Color32::WHITE,
             );
         }
 
-        // Physical switch anchor locations (calibrated to EM624 chassis)
-        let cx = rect.center().x;
-        let cy = rect.center().y;
+        let img_min = img_rect.min;
+        let w = img_rect.width();
+        let h = img_rect.height();
 
-        let anchors: [(u8, usize, Pos2); 7] = [
-            (1, 1, Pos2::new(cx - 48.0 * scale, cy - 120.0 * scale)),
-            (2, 4, Pos2::new(cx + 48.0 * scale, cy - 120.0 * scale)),
-            (3, 7, Pos2::new(cx, cy - 110.0 * scale)),
-            (4, 2, Pos2::new(cx - 86.0 * scale, cy - 15.0 * scale)),
-            (5, 5, Pos2::new(cx - 86.0 * scale, cy + 30.0 * scale)),
-            (6, 9, Pos2::new(cx, cy - 42.0 * scale)),
-            (7, 8, Pos2::new(cx, cy - 8.0 * scale)),
+        // Exact subpixel switch coordinates on EM624 chassis
+        let pt_left = Pos2::new(img_min.x + 0.297 * w, img_min.y + 0.201 * h);
+        let pt_right = Pos2::new(img_min.x + 0.703 * w, img_min.y + 0.201 * h);
+        let pt_wheel = Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.188 * h);
+        let pt_fwd = Pos2::new(img_min.x + 0.095 * w, img_min.y + 0.431 * h);
+        let pt_back = Pos2::new(img_min.x + 0.108 * w, img_min.y + 0.527 * h);
+        let pt_dpi_plus = Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.352 * h);
+        let pt_dpi_minus = Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.421 * h);
+
+        // Callout badges positioned clearly with leader lines
+        let badge_left = Pos2::new(pt_left.x - 28.0 * scale, pt_left.y - 20.0 * scale);
+        let badge_right = Pos2::new(pt_right.x + 28.0 * scale, pt_right.y - 20.0 * scale);
+        let badge_wheel = Pos2::new(pt_wheel.x, img_min.y - 12.0 * scale);
+        let badge_fwd = Pos2::new(img_min.x - 22.0 * scale, pt_fwd.y);
+        let badge_back = Pos2::new(img_min.x - 22.0 * scale, pt_back.y);
+        let badge_dpi_plus = Pos2::new(pt_dpi_plus.x + 36.0 * scale, pt_dpi_plus.y - 8.0 * scale);
+        let badge_dpi_minus =
+            Pos2::new(pt_dpi_minus.x + 36.0 * scale, pt_dpi_minus.y + 8.0 * scale);
+
+        let anchors: [(u8, usize, Pos2, Pos2); 7] = [
+            (1, 1, badge_left, pt_left),
+            (2, 4, badge_right, pt_right),
+            (3, 7, badge_wheel, pt_wheel),
+            (4, 2, badge_fwd, pt_fwd),
+            (5, 5, badge_back, pt_back),
+            (6, 9, badge_dpi_plus, pt_dpi_plus),
+            (7, 8, badge_dpi_minus, pt_dpi_minus),
         ];
 
-        // Draw leader lines and interactive badges for hovered / selected buttons
-        for (btn_num, slot_idx, pos) in &anchors {
+        let mut clicked_slot = None;
+
+        for (btn_num, slot_idx, badge_pos, physical_pos) in &anchors {
             let is_hovered = self.hovered_button == Some(*slot_idx);
             let is_selected = self.selected_slot == *slot_idx;
 
@@ -225,51 +270,82 @@ impl Em624App {
                 11.0 * scale
             };
 
-            let (fill_col, text_col, stroke_col) = if is_selected {
+            let badge_rect = Rect::from_center_size(*badge_pos, Vec2::splat(radius * 2.0));
+            let switch_rect = Rect::from_center_size(*physical_pos, Vec2::splat(18.0 * scale));
+
+            let pointer_pos = ui.input(|i| i.pointer.hover_pos());
+            let is_pointer_over =
+                pointer_pos.is_some_and(|p| badge_rect.contains(p) || switch_rect.contains(p));
+
+            if is_pointer_over {
+                self.hovered_button = Some(*slot_idx);
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                if ui.input(|i| i.pointer.primary_clicked()) {
+                    clicked_slot = Some(*slot_idx);
+                }
+            }
+
+            let (fill_col, text_col, stroke_col, leader_col, dot_col) = if is_selected {
                 (
                     Color32::from_rgb(0, 242, 254),
                     Color32::BLACK,
                     Color32::WHITE,
+                    Color32::from_rgb(0, 242, 254),
+                    Color32::from_rgb(0, 242, 254),
                 )
             } else if is_hovered {
                 (
                     Color32::from_rgb(0, 180, 230),
                     Color32::BLACK,
                     Color32::WHITE,
+                    Color32::from_rgb(0, 180, 230),
+                    Color32::from_rgb(0, 242, 254),
                 )
             } else {
                 (
                     Color32::from_rgb(20, 25, 35),
                     Color32::from_rgb(180, 200, 230),
                     Color32::from_rgb(60, 80, 110),
+                    Color32::from_rgba_premultiplied(80, 100, 130, 160),
+                    Color32::from_rgb(90, 110, 140),
                 )
             };
+
+            // Draw leader line from badge to physical switch
+            painter.line_segment(
+                [*badge_pos, *physical_pos],
+                Stroke::new(1.2 * scale, leader_col),
+            );
+            painter.circle_filled(
+                *physical_pos,
+                (if is_selected || is_hovered { 4.5 } else { 3.0 }) * scale,
+                dot_col,
+            );
 
             // Glow ring on selection
             if is_selected {
                 painter.circle_stroke(
-                    *pos,
+                    *badge_pos,
                     radius + 4.0 * scale,
                     Stroke::new(2.0_f32, Color32::from_rgb(0, 180, 230)),
                 );
             }
 
-            let badge_rect = Rect::from_center_size(*pos, Vec2::splat(radius * 2.0));
-            if response.hover_pos().is_some_and(|p| badge_rect.contains(p)) {
-                self.hovered_button = Some(*slot_idx);
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-            }
-
-            painter.circle_filled(*pos, radius, fill_col);
-            painter.circle_stroke(*pos, radius, Stroke::new(1.5_f32, stroke_col));
+            painter.circle_filled(*badge_pos, radius, fill_col);
+            painter.circle_stroke(*badge_pos, radius, Stroke::new(1.5_f32, stroke_col));
 
             painter.text(
-                *pos,
+                *badge_pos,
                 egui::Align2::CENTER_CENTER,
                 btn_num.to_string(),
                 egui::FontId::proportional(12.0 * scale),
                 text_col,
             );
+        }
+
+        if let Some(slot) = clicked_slot {
+            self.selected_slot = slot;
+            self.init_rebind_modal(slot_idx_to_button_num(slot), is_gaming);
         }
     }
 }
