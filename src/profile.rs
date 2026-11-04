@@ -76,7 +76,8 @@ pub struct ButtonBinding {
     pub param3: u8,
     pub description: String,
 }
-
+/// wtf even is this lol
+/// i swear gemini is onto some shits
 /// Translate USB HID Keyboard Usage (Usage Page 0x07) code to human-readable string
 pub fn format_hid_key_name(code: u8) -> &'static str {
     match code {
