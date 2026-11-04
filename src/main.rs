@@ -211,6 +211,27 @@ fn main() -> Result<()> {
                 "Office Mode"
             };
             println!("Active Profile Mode: {}", mode_str);
+            println!(
+                "USB Polling Rate (0x0004): {} Hz (raw=0x{:02x})",
+                profile.get_polling_rate(),
+                profile.raw[0x0004]
+            );
+            let (num_stages, cur_stage) = profile.get_active_dpi_config();
+            println!(
+                "Active DPI Config (0x00A6): {} active stages, Current = Stage {} (raw=0x{:02x})",
+                num_stages,
+                cur_stage + 1,
+                profile.raw[0x00a6]
+            );
+            println!(
+                "LED Mode (0x00A5): {} (raw=0x{:02x}) | Speed (0x0038): {}/8 (raw=0x{:02x}) | Brightness (0x00A7): {} (raw=0x{:02x})",
+                profile.get_led_mode(),
+                profile.raw[0x00a5],
+                profile.get_led_speed(),
+                profile.raw[0x0038],
+                if profile.get_led_brightness() == 0 { "Full (100%)" } else { "Half (50%)" },
+                profile.raw[0x00a7]
+            );
 
             println!("\nOffice Mode Buttons (0x00C0):");
             for btn in &profile.office_buttons {
@@ -343,17 +364,35 @@ fn main() -> Result<()> {
             // Hardware register safety audit
             let reg_mode = data[0x00a4];
             let reg_lockout = data[0x03f9];
-            let stage6_active = (profile.active_stages_mask & (1 << 5)) != 0;
+            let (num_stages, current_stage) = profile.get_active_dpi_config();
 
             println!("\n--- Hardware Register Audit ---");
             println!(
+                "  Polling Rate  (0x0004)   : 0x{:02x} -> {} Hz",
+                data[0x0004],
+                profile.get_polling_rate()
+            );
+            println!(
                 "  Mode Register (0x00A4)   : 0x{:02x} -> {}",
                 reg_mode,
-                if reg_mode == 1 {
+                if (reg_mode & 0x0f) != 0 {
                     "Gaming [OK]"
                 } else {
                     "Office"
                 }
+            );
+            println!(
+                "  LED Mode      (0x00A5)   : 0x{:02x} (Mode Index {}, Speed Step {}/8 [0x{:02x}])",
+                data[0x00a5],
+                profile.get_led_mode(),
+                profile.get_led_speed(),
+                data[0x0038]
+            );
+            println!(
+                "  DPI Stage Reg (0x00A6)   : 0x{:02x} -> {} Active Stages (Current Stage #{})",
+                data[0x00a6],
+                num_stages,
+                current_stage + 1
             );
             println!(
                 "  Lockout Flag  (0x03F9)   : 0x{:02x} -> {}",
@@ -362,14 +401,6 @@ fn main() -> Result<()> {
                     "Buttons ACTIVE [OK]"
                 } else {
                     "[!] BUTTON INTERRUPT LOCKED (0x80 bit set!)"
-                }
-            );
-            println!(
-                "  Stage 6 Status           : {}",
-                if !stage6_active {
-                    "Disabled [SAFE]"
-                } else {
-                    "[!] ENABLED (May trigger MCU sensor hang!)"
                 }
             );
 
@@ -502,13 +533,14 @@ fn main() -> Result<()> {
             let mut profile = MouseProfile::from_bytes(&data)?;
 
             println!("Active Register 0x0006 was: 0x{:02X}", profile.raw[0x0006]);
+            profile.raw[0x0005] = 0x0f;
             profile.raw[0x0006] = 0x7f;
             profile.raw[0x0007] = 0x7f;
+            profile.raw[0x0008] = 0xaf;
             profile.apply_safe_profile();
 
-            println!("Flashing calibrated orientation registers to mouse memory (293 chunks)...");
+            println!("Flashing calibrated orientation registers to mouse memory...");
             dev.write_profile(&profile.raw)?;
-            let _ = dev.apply_soft_reset();
             println!(
                 "\nSUCCESS: Sensor orientation successfully restored to 180° PCB normal (0x7F)!"
             );

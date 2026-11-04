@@ -741,28 +741,22 @@ impl Em624App {
     }
 
     fn sync_settings_to_profile(&mut self) {
-        // Enforce safe stages and limit unless experimental Stage 6 is unlocked
-        if !self.config.allow_stage_6 {
-            self.profile.apply_safe_profile();
-        } else {
-            self.profile.refresh_stages();
-        }
+        // Enforce safe hardware orientation (0x0006=0x7F) and hardware fuse bytes (0x0005=0x0F, 0x0007=0x7F, 0x0008=0xAF)
+        // while preserving user Polling Rate in 0x0004 and DPI stage config in 0x00A6.
+        self.profile.apply_safe_profile();
 
         // Active Mode (byte 0x00A4): 0x01 for Gaming Mode, 0x00 for Office Mode
-        self.profile.raw[0x00a4] = if self.active_tab == Tab::OfficeMode {
-            0x00
+        // Verified from Btn_Switch_0Click ("SP6653"/"SP6662" branch at 0x0059df97):
+        if self.active_tab == Tab::OfficeMode {
+            self.profile.raw[0x00a4] = 0x00;
+            self.profile.raw[0x00a8] = 0x00;
+            self.profile.raw[0x00aa] = 0x00;
         } else {
-            0x01
-        };
-        self.profile.raw[0x00aa] = 0x18; // Feature report enable
-        self.profile.raw[0x03f9] &= 0x7f; // Clear button lockout flag
-
-        // Sensor Orientation Safeguard:
-        // Byte 0x0006 is 0x7F (180° PCB mounting orientation, standard normal axes).
-        self.profile.raw[0x0006] = 0x7f;
-        if self.profile.raw[0x0007] == 0 || self.profile.raw[0x0007] > 5 {
-            self.profile.raw[0x0007] = 3;
+            self.profile.raw[0x00a4] = 0x01;
+            self.profile.raw[0x00a8] = 0x0f; // Active button mask
+            self.profile.raw[0x00aa] = 0x18; // Feature report enable
         }
+        self.profile.raw[0x03f9] &= 0x7f; // Clear button lockout flag
 
         // Sync OS mouse dynamics (Pointer Speed, Double Click, Wheel Scroll Lines)
         self.apply_live_os_mouse_settings();
@@ -872,7 +866,6 @@ impl Em624App {
                 match dev.write_profile(&self.profile.raw) {
                     Ok(()) => {
                         self.device_connected = true;
-                        let _ = dev.apply_soft_reset();
                         self.status_message =
                             "Successfully flashed profile to mouse! Settings active immediately."
                                 .to_string();
@@ -901,6 +894,8 @@ impl Em624App {
         };
         self.profile.raw[0x00a4] = mode_byte;
         self.sync_settings_to_profile();
+        self.profile.raw[0x00a4] = mode_byte;
+        self.profile.recalculate_checksums();
         self.save_to_cached_profile();
 
         self.log_debug(&format!(
@@ -931,7 +926,6 @@ impl Em624App {
                 match dev.write_profile(&self.profile.raw) {
                     Ok(()) => {
                         self.device_connected = true;
-                        let _ = dev.apply_soft_reset();
                         self.status_message =
                             format!("Mouse switched to {} successfully!", mode_name);
                         self.log_debug(&format!(
@@ -968,8 +962,10 @@ impl Em624App {
     /// recalculates all checksums, saves cached profile, and flashes mouse memory.
     fn repair_sensor_orientation_now(&mut self) {
         self.log_debug("[REPAIR] Starting on-demand sensor orientation calibration...");
+        self.profile.raw[0x0005] = 0x0f;
         self.profile.raw[0x0006] = 0x7f;
         self.profile.raw[0x0007] = 0x7f;
+        self.profile.raw[0x0008] = 0xaf;
         self.profile.apply_safe_profile();
         self.save_to_cached_profile();
 
@@ -988,7 +984,6 @@ impl Em624App {
                 match dev.write_profile(&self.profile.raw) {
                     Ok(()) => {
                         self.device_connected = true;
-                        let _ = dev.apply_soft_reset();
                         self.status_message =
                             "Sensor orientation successfully restored to 180° PCB standard!"
                                 .to_string();
@@ -1137,8 +1132,21 @@ impl Em624App {
                 self.rebind_category = 3; // Special / DPI
             }
             0x03 => {
-                match p2 {
-                    0x81 | 0x82 | 0x83 | 0x84 | 0x92 | 0x94 | 0x8a => {
+                match (p1, p2) {
+                    (0x23, 0x02)
+                    | (0x27, 0x02)
+                    | (0x24, 0x02)
+                    | (0x25, 0x02)
+                    | (0x8a, 0x01)
+                    | (0x92, 0x01)
+                    | (0x94, 0x01)
+                    | (0x00, 0x81)
+                    | (0x00, 0x82)
+                    | (0x00, 0x83)
+                    | (0x00, 0x84)
+                    | (0x00, 0x92)
+                    | (0x00, 0x94)
+                    | (0x00, 0x8a) => {
                         self.rebind_category = 5; // Productivity
                     }
                     _ => {
@@ -1146,8 +1154,11 @@ impl Em624App {
                     }
                 }
             }
-            0x07 => {
+            0x07 | 0x0a => {
                 self.rebind_category = 5; // Productivity (LED)
+            }
+            0x05 => {
+                self.rebind_category = 6; // Macro
             }
             _ => {
                 self.rebind_category = 0;
@@ -1169,8 +1180,8 @@ impl Em624App {
             let alt_off = alt_base_off + (slot_idx - 1) * 4;
             self.profile.raw[alt_off..alt_off + 4].copy_from_slice(&bytes);
 
-            // Set active mode byte 0x00a4 (0x01 Gaming, 0x00 Office)
-            self.profile.raw[0x00a4] = if is_gaming { 0x01 } else { 0x00 };
+            // Set active mode byte 0x00a4 (0xF1 Gaming, 0x00 Office)
+            self.profile.raw[0x00a4] = if is_gaming { 0xf1 } else { 0x00 };
             self.profile.raw[0x00aa] = 0x18; // Feature report enable
             self.profile.raw[0x03f9] &= 0x7f; // Clear button lockout flag
 
@@ -1602,7 +1613,7 @@ impl eframe::App for Em624App {
                 if self.config.show_mode_switcher {
                     ui.separator();
 
-                    let is_gaming = self.profile.raw[0x00a4] == 0x01;
+                    let is_gaming = (self.profile.raw[0x00a4] & 0x0f) != 0;
                     let mode_btn_text = if is_gaming {
                         format!("{} [EXP]", Strings::btn_mode_gaming(self.config.language))
                     } else {
@@ -1707,10 +1718,7 @@ impl Em624App {
         } else {
             Strings::office_mode_title(self.config.language)
         };
-        let title = format!(
-            "{} [UNFINISHED - DEMO UI ONLY]",
-            Strings::rebind_title(self.config.language, btn_num, mode_label)
-        );
+        let title = Strings::rebind_title(self.config.language, btn_num, mode_label);
 
         egui::Window::new(title)
             .collapsible(false)
@@ -1721,10 +1729,10 @@ impl Em624App {
 
                 ui.label(
                     egui::RichText::new(
-                        "Demo UI only: Hardware button remapping failed in hardware testing. Buttons will not be flashed.",
+                        "Hardware button remapping writes to both Office (0x00C0) & Gaming (0x00F1) tables with HID+VK translation.",
                     )
                     .small()
-                    .color(Color32::from_rgb(255, 177, 66)),
+                    .color(Color32::from_rgb(140, 180, 230)),
                 );
                 ui.add_space(4.0);
 
@@ -1847,8 +1855,11 @@ impl Em624App {
             ("Left Click", [0x01, 0x01, 0x00, 0x00]),
             ("Right Click", [0x01, 0x02, 0x00, 0x00]),
             ("Middle Click", [0x01, 0x04, 0x00, 0x00]),
-            ("Forward (Browser Side 1)", [0x01, 0x08, 0x00, 0x02]),
+            ("Forward (Browser Side 1)", [0x01, 0x08, 0x00, 0x00]),
             ("Backward (Browser Side 2)", [0x01, 0x10, 0x00, 0x00]),
+            ("Double Click (Left x2)", [0x06, 0x01, 0x02, 0x1e]),
+            ("Scroll Up", [0x01, 0x00, 0x01, 0x00]),
+            ("Scroll Down", [0x01, 0x00, 0xff, 0x00]),
         ];
 
         for (label, bytes) in options {
@@ -1876,12 +1887,16 @@ impl Em624App {
                 ui.horizontal_wrapped(|ui| {
                     for code in 0x04..=0x1d {
                         let name = format_hid_key_name(code);
-                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        let vk = MouseProfile::hid_usage_to_vk(code);
+                        let is_sel = self
+                            .rebind_candidate
+                            .map(|b| b[0] == 0x02 && b[1] == 0x00 && b[2] == code)
+                            .unwrap_or(false);
                         if ui
                             .add_sized([32.0, 26.0], egui::SelectableLabel::new(is_sel, name))
                             .clicked()
                         {
-                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_candidate = Some([0x02, 0x00, code, vk]);
                             self.rebind_key_code = code;
                         }
                     }
@@ -1892,12 +1907,16 @@ impl Em624App {
                 ui.horizontal_wrapped(|ui| {
                     for code in 0x1e..=0x27 {
                         let name = format_hid_key_name(code);
-                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        let vk = MouseProfile::hid_usage_to_vk(code);
+                        let is_sel = self
+                            .rebind_candidate
+                            .map(|b| b[0] == 0x02 && b[1] == 0x00 && b[2] == code)
+                            .unwrap_or(false);
                         if ui
                             .add_sized([36.0, 28.0], egui::SelectableLabel::new(is_sel, name))
                             .clicked()
                         {
-                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_candidate = Some([0x02, 0x00, code, vk]);
                             self.rebind_key_code = code;
                         }
                     }
@@ -1928,12 +1947,16 @@ impl Em624App {
                 ];
                 ui.horizontal_wrapped(|ui| {
                     for (code, label) in numpad_keys {
-                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        let vk = MouseProfile::hid_usage_to_vk(code);
+                        let is_sel = self
+                            .rebind_candidate
+                            .map(|b| b[0] == 0x02 && b[1] == 0x00 && b[2] == code)
+                            .unwrap_or(false);
                         if ui
                             .add_sized([72.0, 28.0], egui::SelectableLabel::new(is_sel, label))
                             .clicked()
                         {
-                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_candidate = Some([0x02, 0x00, code, vk]);
                             self.rebind_key_code = code;
                         }
                     }
@@ -1944,12 +1967,16 @@ impl Em624App {
                 ui.horizontal_wrapped(|ui| {
                     for code in 0x3a..=0x45 {
                         let name = format_hid_key_name(code);
-                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        let vk = MouseProfile::hid_usage_to_vk(code);
+                        let is_sel = self
+                            .rebind_candidate
+                            .map(|b| b[0] == 0x02 && b[1] == 0x00 && b[2] == code)
+                            .unwrap_or(false);
                         if ui
                             .add_sized([42.0, 28.0], egui::SelectableLabel::new(is_sel, name))
                             .clicked()
                         {
-                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_candidate = Some([0x02, 0x00, code, vk]);
                             self.rebind_key_code = code;
                         }
                     }
@@ -1978,12 +2005,16 @@ impl Em624App {
                 ];
                 ui.horizontal_wrapped(|ui| {
                     for (code, label) in nav_keys {
-                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        let vk = MouseProfile::hid_usage_to_vk(code);
+                        let is_sel = self
+                            .rebind_candidate
+                            .map(|b| b[0] == 0x02 && b[1] == 0x00 && b[2] == code)
+                            .unwrap_or(false);
                         if ui
                             .add_sized([80.0, 28.0], egui::SelectableLabel::new(is_sel, label))
                             .clicked()
                         {
-                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_candidate = Some([0x02, 0x00, code, vk]);
                             self.rebind_key_code = code;
                         }
                     }
@@ -2006,12 +2037,16 @@ impl Em624App {
                 ];
                 ui.horizontal_wrapped(|ui| {
                     for (code, label) in sym_keys {
-                        let is_sel = self.rebind_candidate == Some([0x02, 0x00, code, 0x00]);
+                        let vk = MouseProfile::hid_usage_to_vk(code);
+                        let is_sel = self
+                            .rebind_candidate
+                            .map(|b| b[0] == 0x02 && b[1] == 0x00 && b[2] == code)
+                            .unwrap_or(false);
                         if ui
                             .add_sized([110.0, 28.0], egui::SelectableLabel::new(is_sel, label))
                             .clicked()
                         {
-                            self.rebind_candidate = Some([0x02, 0x00, code, 0x00]);
+                            self.rebind_candidate = Some([0x02, 0x00, code, vk]);
                             self.rebind_key_code = code;
                         }
                     }
@@ -2079,17 +2114,19 @@ impl Em624App {
                 }
             });
 
-        self.rebind_candidate = Some([0x02, self.rebind_modifiers, self.rebind_key_code, 0x00]);
+        let vk = MouseProfile::hid_usage_to_vk(self.rebind_key_code);
+        self.rebind_candidate = Some([0x02, self.rebind_modifiers, self.rebind_key_code, vk]);
     }
 
     fn render_category_special(&mut self, ui: &mut egui::Ui) {
         let specials = [
             ("DPI Loop (Cycle All)", [0x08, 0x00, 0x00, 0x00]),
             ("DPI +", [0x09, 0x02, 0x00, 0x00]),
-            ("DPI -", [0x09, 0x00, 0x00, 0x00]),
-            ("Fire Key (Rapid Burst)", [0x06, 0x92, 0x00, 0x1e]),
+            ("DPI -", [0x09, 0x03, 0x00, 0x00]),
+            ("Fire Key (Rapid Burst)", [0x06, 0x92, 0x00, 0x00]),
             ("Office Mode Switch", [0x09, 0x00, 0x00, 0x00]),
             ("Game Mode Switch", [0x09, 0x01, 0x00, 0x00]),
+            ("LED Mode Switch", [0x0a, 0x01, 0x00, 0x00]),
         ];
 
         for (label, bytes) in specials {
@@ -2101,14 +2138,16 @@ impl Em624App {
     }
 
     fn render_category_media(&mut self, ui: &mut egui::Ui) {
+        // Verified from Key_MediaClick (0x005814b0): [0x03, usage_lsb, usage_msb, 0x00]
         let media = [
-            ("Play / Pause", [0x03, 0x00, 0xcd, 0x00]),
-            ("Next Track", [0x03, 0x00, 0xb5, 0x00]),
-            ("Previous Track", [0x03, 0x00, 0xb6, 0x00]),
-            ("Stop", [0x03, 0x00, 0xb7, 0x00]),
-            ("Volume +", [0x03, 0x00, 0xe9, 0x00]),
-            ("Volume -", [0x03, 0x00, 0xea, 0x00]),
-            ("Mute", [0x03, 0x00, 0xe2, 0x00]),
+            ("Play / Pause", [0x03, 0xcd, 0x00, 0x00]),
+            ("Next Track", [0x03, 0xb5, 0x00, 0x00]),
+            ("Previous Track", [0x03, 0xb6, 0x00, 0x00]),
+            ("Stop", [0x03, 0xb7, 0x00, 0x00]),
+            ("Volume +", [0x03, 0xe9, 0x00, 0x00]),
+            ("Volume -", [0x03, 0xea, 0x00, 0x00]),
+            ("Mute", [0x03, 0xe2, 0x00, 0x00]),
+            ("Media Player", [0x03, 0x83, 0x01, 0x00]),
         ];
 
         for (label, bytes) in media {
@@ -2120,15 +2159,18 @@ impl Em624App {
     }
 
     fn render_category_productivity(&mut self, ui: &mut egui::Ui) {
+        // Verified from Key_MediaClick (0x005814b0) & Key_AssemblyClick (0x005828b0)
         let prod = [
-            ("Desktop (Win+D)", [0x02, 0x08, 0x07, 0x00]),
-            ("Snip (Shift+Win+S)", [0x02, 0x0a, 0x16, 0x00]),
-            ("Calculator", [0x03, 0x00, 0x92, 0x00]),
-            ("My Computer", [0x03, 0x00, 0x94, 0x00]),
-            ("Web Back", [0x03, 0x00, 0x83, 0x00]),
-            ("Web Forward", [0x03, 0x00, 0x84, 0x00]),
-            ("LED ON/OFF Toggle", [0x07, 0x80, 0x00, 0x00]),
-            ("LED Mode Cycle", [0x07, 0x81, 0x00, 0x00]),
+            ("Desktop (Win+D)", [0x02, 0x08, 0x07, b'D']),
+            ("Snip (Shift+Win+S)", [0x02, 0x0a, 0x16, b'S']),
+            ("Calculator", [0x03, 0x92, 0x01, 0x00]),
+            ("My Computer", [0x03, 0x94, 0x01, 0x00]),
+            ("Email Client", [0x03, 0x8a, 0x01, 0x00]),
+            ("Web Back", [0x03, 0x24, 0x02, 0x00]),
+            ("Web Forward", [0x03, 0x25, 0x02, 0x00]),
+            ("Web Home", [0x03, 0x23, 0x02, 0x00]),
+            ("Web Refresh", [0x03, 0x27, 0x02, 0x00]),
+            ("LED Mode Cycle", [0x0a, 0x01, 0x00, 0x00]),
         ];
 
         for (label, bytes) in prod {
@@ -2157,7 +2199,7 @@ impl Em624App {
         } else {
             for (idx, macro_item) in self.macro_bank.macros.iter().enumerate() {
                 let is_selected = match self.rebind_candidate {
-                    Some([0x05, m_idx, _, _]) => m_idx as usize == idx,
+                    Some([0x05, _, m_idx, _]) => m_idx as usize == idx,
                     _ => false,
                 };
                 let label = format!(
@@ -2167,7 +2209,8 @@ impl Em624App {
                     macro_item.actions.len()
                 );
                 if ui.selectable_label(is_selected, label).clicked() {
-                    self.rebind_candidate = Some([0x05, idx as u8, 0x00, 0x00]);
+                    // Verified from Key_MacroClick (0x0058328c): [0x05, repeat_mode, macro_idx, 0x00]
+                    self.rebind_candidate = Some([0x05, 0x01, idx as u8, 0x00]);
                 }
             }
         }
@@ -2587,53 +2630,35 @@ impl Em624App {
                             ui.end_row();
 
                             for i in 0..6 {
-                                let is_active = (self.profile.active_stages_mask & (1 << i)) != 0;
                                 let current_step =
                                     self.profile.dpi_stages[i].level_index.min(14) as usize;
                                 let color = self.profile.dpi_stages[i].color.clone();
 
-                                if i == 5 && !self.config.allow_stage_6 {
-                                    ui.label("Stage 6 [Locked]").on_hover_text(
-                                        "Stage 6 is locked for hardware safety (causes Sunplus MCU freeze).\nYou can unlock it in App Settings.",
-                                    );
+                                let (num_stages, current_stage_idx) =
+                                    self.profile.get_active_dpi_config();
+                                let is_cur_stage = current_stage_idx == (i as u8);
+                                let stage_label = if is_cur_stage {
+                                    format!("* Stage {}", i + 1)
                                 } else {
-                                    ui.label(format!("Stage {}", i + 1));
+                                    format!("  Stage {}", i + 1)
+                                };
+                                if ui
+                                    .selectable_label(is_cur_stage, stage_label)
+                                    .on_hover_text("Click to set as current active DPI stage (0x00A6)")
+                                    .clicked()
+                                {
+                                    let new_num = num_stages.max(i as u8 + 1);
+                                    self.profile.set_active_dpi_config(new_num, i as u8);
                                 }
 
-                                // Stage 6 is protected against MCU lockup unless experimental mode is active
-                                if i == 5 {
-                                    if !self.config.allow_stage_6 {
-                                        let mut disabled_flag = false;
-                                        ui.add_enabled(
-                                            false,
-                                            egui::Checkbox::new(&mut disabled_flag, ""),
-                                        )
-                                        .on_disabled_hover_text(
-                                            "Locked for Hardware Safety:\nEnabling Stage 6 (bit 5 = 1) causes an internal MCU firmware interrupt deadlock on Sunplus SPCP6651B, freezing physical button clicks until USB replug.\n\nTo unlock for testing, enable 'Allow Experimental Stage 6' in App Settings.",
-                                        );
+                                let mut active_checked = (i as u8) < num_stages;
+                                if ui.checkbox(&mut active_checked, "").changed() {
+                                    let new_num = if active_checked {
+                                        (i as u8 + 1).clamp(1, 6)
                                     } else {
-                                        let mut active_checked = is_active;
-                                        if ui.checkbox(&mut active_checked, "").changed() {
-                                            if active_checked {
-                                                self.profile.active_stages_mask |= 1 << i;
-                                            } else {
-                                                self.profile.active_stages_mask &= !(1 << i);
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    let mut active_checked = is_active;
-                                    if ui.checkbox(&mut active_checked, "").changed() {
-                                        if active_checked {
-                                            self.profile.active_stages_mask |= 1 << i;
-                                        } else {
-                                            self.profile.active_stages_mask &= !(1 << i);
-                                        }
-                                        if !self.config.allow_stage_6 {
-                                            self.profile.active_stages_mask &= 0xdf;
-                                            // Safety clamp
-                                        }
-                                    }
+                                        (i as u8).clamp(1, 6)
+                                    };
+                                    self.profile.set_active_dpi_config(new_num, current_stage_idx);
                                 }
 
                                 let dpi_val = OFFICIAL_DPI_STEPS[current_step];
@@ -2658,16 +2683,20 @@ impl Em624App {
                                             & 0x0f)
                                             | ((step_val as u8 & 0x0f) << 4);
                                     }
+                                    self.profile.recalculate_checksums();
                                     self.profile.refresh_stages();
                                 }
 
                                 let mut color_rgb = [color.r, color.g, color.b];
                                 if ui.color_edit_button_srgb(&mut color_rgb).changed() {
-                                    let color_off = 0x3c + (i * 4);
-                                    self.profile.raw[color_off] = color_rgb[0];
-                                    self.profile.raw[color_off + 1] = color_rgb[1];
-                                    self.profile.raw[color_off + 2] = color_rgb[2];
-                                    self.profile.refresh_stages();
+                                    self.profile.set_stage_color(
+                                        i,
+                                        crate::profile::RgbColor {
+                                            r: color_rgb[0],
+                                            g: color_rgb[1],
+                                            b: color_rgb[2],
+                                        },
+                                    );
                                 }
 
                                 ui.end_row();
@@ -2754,12 +2783,12 @@ impl Em624App {
             ui.horizontal(|ui| {
                 ui.label("Slow (1)");
                 if ui
-                    .add(egui::Slider::new(&mut cur_speed, 1..=5).show_value(true))
+                    .add(egui::Slider::new(&mut cur_speed, 1..=8).show_value(true))
                     .changed()
                 {
                     self.profile.set_led_speed(cur_speed);
                 }
-                ui.label("Fast (5)");
+                ui.label("Fast (8)");
             });
         });
 
@@ -2772,28 +2801,37 @@ impl Em624App {
                 if ui.radio_value(&mut cur_mode, 0, "CPI Breathing").clicked() {
                     mode_changed = true;
                 }
-                if ui.radio_value(&mut cur_mode, 1, "Colorful Light").clicked() {
+                if ui
+                    .radio_value(&mut cur_mode, 1, "Colorful Breathing")
+                    .clicked()
+                {
                     mode_changed = true;
                 }
                 if ui
-                    .radio_value(&mut cur_mode, 2, "Neon / Breathing")
+                    .radio_value(&mut cur_mode, 2, "Rainbow / Steady")
                     .clicked()
                 {
+                    mode_changed = true;
+                }
+                if ui.radio_value(&mut cur_mode, 3, "Floe Light").clicked() {
                     mode_changed = true;
                 }
             });
             ui.add_space(6.0);
             ui.horizontal(|ui| {
-                if ui.radio_value(&mut cur_mode, 3, "Flow Light").clicked() {
-                    mode_changed = true;
-                }
                 if ui.radio_value(&mut cur_mode, 4, "Waltz").clicked() {
                     mode_changed = true;
                 }
-                if ui.radio_value(&mut cur_mode, 5, "4-Seasons").clicked() {
+                if ui.radio_value(&mut cur_mode, 5, "Four Seasons").clicked() {
                     mode_changed = true;
                 }
-                if ui.radio_value(&mut cur_mode, 6, "Off").clicked() {
+                if ui
+                    .radio_value(&mut cur_mode, 6, "Follow / Reactive")
+                    .clicked()
+                {
+                    mode_changed = true;
+                }
+                if ui.radio_value(&mut cur_mode, 7, "Off").clicked() {
                     mode_changed = true;
                 }
             });
@@ -3860,13 +3898,15 @@ pub fn format_binding_desc(bytes: &[u8; 4]) -> String {
     let p1 = bytes[1];
     let p2 = bytes[2];
     match key_type {
-        0x01 => match p1 {
-            0x01 => "Left Click".to_string(),
-            0x02 => "Right Click".to_string(),
-            0x04 => "Middle Click".to_string(),
-            0x08 => "Forward (Side 1)".to_string(),
-            0x10 => "Backward (Side 2)".to_string(),
-            other => format!("Mouse Button 0x{:02x}", other),
+        0x01 => match (p1, p2) {
+            (0x01, _) => "Left Click".to_string(),
+            (0x02, _) => "Right Click".to_string(),
+            (0x04, _) => "Middle Click".to_string(),
+            (0x08, _) => "Forward (Side 1)".to_string(),
+            (0x10, _) => "Backward (Side 2)".to_string(),
+            (0x00, 0x01) => "Scroll Up".to_string(),
+            (0x00, 0xff) => "Scroll Down".to_string(),
+            (other, _) => format!("Mouse Button 0x{:02x}", other),
         },
         0x02 => {
             let mod_str = format_modifiers(p1);
@@ -3877,24 +3917,31 @@ pub fn format_binding_desc(bytes: &[u8; 4]) -> String {
                 format!("Key: {}{}", mod_str, key_name)
             }
         }
-        0x03 => match p2 {
-            0xb5 => "Media: Next Track".to_string(),
-            0xb6 => "Media: Prev Track".to_string(),
-            0xb7 => "Media: Stop".to_string(),
-            0xcd => "Media: Play/Pause".to_string(),
-            0xe2 => "Media: Mute".to_string(),
-            0xe9 => "Media: Vol+".to_string(),
-            0xea => "Media: Vol-".to_string(),
-            0x81 => "Browser: Home".to_string(),
-            0x82 => "Browser: Refresh".to_string(),
-            0x83 => "Browser: Back".to_string(),
-            0x84 => "Browser: Forward".to_string(),
-            0x8a => "App: Mail".to_string(),
-            0x92 => "App: Calculator".to_string(),
-            0x94 => "App: My Computer".to_string(),
-            other => format!("Consumer 0x{:02x}", other),
+        0x03 => match (p1, p2) {
+            (0xb5, 0x00) | (0x00, 0xb5) => "Media: Next Track".to_string(),
+            (0xb6, 0x00) | (0x00, 0xb6) => "Media: Prev Track".to_string(),
+            (0xb7, 0x00) | (0x00, 0xb7) => "Media: Stop".to_string(),
+            (0xcd, 0x00) | (0x00, 0xcd) => "Media: Play/Pause".to_string(),
+            (0xe2, 0x00) | (0x00, 0xe2) => "Media: Mute".to_string(),
+            (0xe9, 0x00) | (0x00, 0xe9) => "Media: Vol+".to_string(),
+            (0xea, 0x00) | (0x00, 0xea) => "Media: Vol-".to_string(),
+            (0x83, 0x01) => "Media: Player".to_string(),
+            (0x23, 0x02) | (0x00, 0x81) => "Browser: Home".to_string(),
+            (0x27, 0x02) | (0x00, 0x82) => "Browser: Refresh".to_string(),
+            (0x24, 0x02) | (0x00, 0x83) => "Browser: Back".to_string(),
+            (0x25, 0x02) | (0x00, 0x84) => "Browser: Forward".to_string(),
+            (0x8a, 0x01) | (0x00, 0x8a) => "App: Mail".to_string(),
+            (0x92, 0x01) | (0x00, 0x92) => "App: Calculator".to_string(),
+            (0x94, 0x01) | (0x00, 0x94) => "App: My Computer".to_string(),
+            _ => format!("Consumer 0x{:02x}{:02x}", p2, p1),
         },
-        0x06 => "Fire Key (Rapid Burst)".to_string(),
+        0x06 => {
+            if p1 == 0x01 && p2 == 0x02 {
+                "Double Click (Left x2)".to_string()
+            } else {
+                "Fire Key (Rapid Burst)".to_string()
+            }
+        }
         0x07 => match p1 {
             0x80 => "LED ON/OFF Toggle".to_string(),
             0x81 => "LED Mode Cycle".to_string(),
@@ -3902,12 +3949,14 @@ pub fn format_binding_desc(bytes: &[u8; 4]) -> String {
         },
         0x08 => "DPI Loop (Cycle All)".to_string(),
         0x09 => match p1 {
-            0x00 => "DPI - / Office Mode".to_string(),
+            0x00 => "Office Mode Switch".to_string(),
             0x01 => "Gaming Mode Switch".to_string(),
             0x02 => "DPI +".to_string(),
+            0x03 => "DPI -".to_string(),
             other => format!("Fn 0x{:02x}", other),
         },
-        0x05 => format!("Macro #{} [EXPERIMENTAL]", p1 + 1),
+        0x0a => "LED Mode Cycle".to_string(),
+        0x05 => format!("Macro #{} [EXPERIMENTAL]", p2.saturating_add(1)),
         0x00 => "Disabled (None)".to_string(),
         other => format!("Type 0x{:02x}", other),
     }

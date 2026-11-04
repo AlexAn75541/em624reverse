@@ -11,7 +11,9 @@ pub const REPORT_ID_DATA: u8 = 0x41;
 
 pub const CMD_START_WRITE: u8 = 0x07;
 pub const CMD_READ: u8 = 0x09;
+#[allow(dead_code)]
 pub const CMD_APPLY_SETTINGS: u8 = 0x0D;
+#[allow(dead_code)]
 pub const CMD_COMMIT_WRITE: u8 = 0x0E;
 
 pub const PROFILE_SIZE: usize = 2048;
@@ -163,7 +165,89 @@ impl Em624Device {
         Ok(endpoints)
     }
 
-    /// Flash an entire 2048-byte configuration profile to mouse memory
+    /// Write a block of registers (3 bytes per packet) using Opcode 0x40 0x05 (`FUN_005b8304` at `0x005b8304`).
+    /// Verified live on EM624 (`0x40 0x0D` -> `41 82 5a 01` -> `"I2C"` EEPROM branch):
+    /// Each `0x40 0x05` packet (`[0x40, 0x05, addr_msb, addr_lsb, d0, d1, d2, len_1_to_3]`) performs a hardware
+    /// I2C EEPROM page write + live MCU register latch and requires >= 10ms pacing before the next USB control transfer.
+    pub fn write_registers_3b(&self, start_addr: u16, slice: &[u8]) -> Result<()> {
+        for (idx, chunk) in slice.chunks(3).enumerate() {
+            let addr = start_addr + (idx as u16) * 3;
+            let mut cmd = [0u8; 8];
+            cmd[0] = REPORT_ID_CMD; // 0x40
+            cmd[1] = 0x05; // Opcode 0x05 (1..3-byte direct I2C EEPROM + live register write)
+            cmd[2] = ((addr >> 8) & 0xff) as u8;
+            cmd[3] = (addr & 0xff) as u8;
+            for (i, &b) in chunk.iter().enumerate() {
+                cmd[4 + i] = b;
+            }
+            cmd[7] = chunk.len() as u8;
+            self.send_feature_report(&cmd).with_context(|| {
+                format!("Failed to write 3-byte register block at 0x{:04x}", addr)
+            })?;
+            sleep(Duration::from_millis(12));
+        }
+        Ok(())
+    }
+
+    /// Write a single register byte using Opcode 0x40 0x05 (`FUN_005b7f8c` at `0x005b7f8c`).
+    #[allow(dead_code)]
+    pub fn write_register_1b(&self, addr: u8, val: u8) -> Result<()> {
+        let cmd = [REPORT_ID_CMD, 0x05, 0x00, addr, val, 0x00, 0x00, 0x01];
+        self.send_feature_report(&cmd)
+            .with_context(|| format!("Failed to write single register 0x{:02x}", addr))?;
+        sleep(Duration::from_millis(12));
+        Ok(())
+    }
+
+    /// Write a variable-length memory region using Opcode 0x40 0x07 + 7-byte 0x41 chunks
+    /// matching `FUN_005b888c` (`0x005b888c` at `0x005b88b2..0x005b88f8`).
+    /// Both `start_addr` and `len` are Big-Endian (`[0x40, 0x07, addr_msb, addr_lsb, len_msb, len_lsb, 0x00, 0x00]`).
+    pub fn write_chunked_region(&self, start_addr: u16, slice: &[u8]) -> Result<()> {
+        let len = slice.len() as u16;
+        let start_cmd = [
+            REPORT_ID_CMD,
+            CMD_START_WRITE, // 0x07
+            ((start_addr >> 8) & 0xff) as u8,
+            (start_addr & 0xff) as u8,
+            ((len >> 8) & 0xff) as u8,
+            (len & 0xff) as u8,
+            0x00,
+            0x00,
+        ];
+        self.send_feature_report(&start_cmd).with_context(|| {
+            format!(
+                "Failed to start chunked write at 0x{:04x} (len {})",
+                start_addr, len
+            )
+        })?;
+        sleep(Duration::from_millis(12));
+
+        for (chunk_idx, chunk) in slice.chunks(CHUNK_SIZE).enumerate() {
+            let mut report = [0xffu8; 8];
+            report[0] = REPORT_ID_DATA; // 0x41
+            report[1..1 + chunk.len()].copy_from_slice(chunk);
+            self.send_feature_report(&report).with_context(|| {
+                format!(
+                    "Failed on chunk {} of region 0x{:04x}",
+                    chunk_idx + 1,
+                    start_addr
+                )
+            })?;
+            sleep(Duration::from_millis(8));
+        }
+        Ok(())
+    }
+
+    /// Flash an entire 2048-byte configuration profile to mouse memory using the exact
+    /// decompiled `EM624 Mouse.exe` `"I2C"` sequence (`0x00560d54`, `MemoToDataBuf_OnClick` `0x005a02e0`,
+    /// and `DefaultParameterConfirm1` `0x0059bdf8`), verified live against the connected EM624 mouse:
+    /// 1. Sector 0 (`0x0000..0x00A3`, 164 bytes: Polling Rate `0x0004`, Sensor `0x0006`, DPI stages `0x002C..0x002E`,
+    ///    LED Speed `0x0038`, 3-byte RGB Colors `0x0039..0x004D`, Checksum `0x00A3`) via `0x40 0x05` (3-byte writes, 12ms pacing).
+    /// 2. Sector 1 (`0x00A4..0x00BF`, 28 bytes: Mode `0x00A4`, LED Mode `0x00A5`, Active DPI Config `0x00A6`,
+    ///    LED Brightness `0x00A7`, Checksum `0x00BF`) via `0x40 0x05` (3-byte writes, 12ms pacing).
+    /// 3. Sectors >= `0x00C0` (Office Buttons `0x00C0..0x00F0`, Gaming Buttons `0x00F1..0x0121`, Gun/Footer/Macro regions
+    ///    `0x0122..0x07FF`) via `0x40 0x07` + 7-byte `0x41` chunks (`FUN_005b888c`).
+    /// 4. Final hardware reload trigger `[0x40, 0x07, 0xB4, 0x30, 0x01, 0x00, 0x00, 0x00]` (`0x005a04ee..0x005a0502`).
     pub fn write_profile(&self, data: &[u8]) -> Result<()> {
         if data.len() != PROFILE_SIZE {
             bail!(
@@ -173,70 +257,37 @@ impl Em624Device {
             );
         }
 
-        // Step 1: Start write command: 40 07 00 00 08 00 00 00
-        let mut start_cmd = [0u8; 8];
-        start_cmd[0] = REPORT_ID_CMD;
-        start_cmd[1] = CMD_START_WRITE;
-        start_cmd[2] = 0x00;
-        start_cmd[3] = 0x00;
-        start_cmd[4] = 0x08; // length 0x0800 (2048 bytes)
-        start_cmd[5] = 0x00;
-        start_cmd[6] = 0x00;
-        start_cmd[7] = 0x00;
-        self.send_feature_report(&start_cmd)
-            .context("Failed to send Start Write command (0x40, 0x07)")?;
-        sleep(Duration::from_millis(15));
+        // 1. Write Sector 0 (0x0000..0x00A3, 164 bytes) via 0x40 0x05 (3-byte register writes)
+        self.write_registers_3b(0x0000, &data[0x0000..0x00a4])
+            .context("Failed to write Sector 0 (0x0000..0x00A3) via 0x40 0x05")?;
 
-        // Step 2: Send profile in 293 chunks of 7 bytes each
-        for chunk_idx in 0..TOTAL_CHUNKS {
-            let offset = chunk_idx * CHUNK_SIZE;
-            let mut report = [0xFFu8; 8];
-            report[0] = REPORT_ID_DATA;
+        // 2. Write Sector 1 (0x00A4..0x00BF, 28 bytes) via 0x40 0x05 (3-byte register writes)
+        self.write_registers_3b(0x00a4, &data[0x00a4..0x00c0])
+            .context("Failed to write Sector 1 (0x00A4..0x00BF) via 0x40 0x05")?;
 
-            let end = (offset + CHUNK_SIZE).min(PROFILE_SIZE);
-            if offset < PROFILE_SIZE {
-                let slice = &data[offset..end];
-                report[1..1 + slice.len()].copy_from_slice(slice);
-            }
+        // 3. Write Office Mode 12-button table (0x00C0..0x00F0, 49 bytes) via 0x40 0x07
+        self.write_chunked_region(0x00c0, &data[0x00c0..0x00f1])
+            .context("Failed to write Office Button Table (0x00C0..0x00F0)")?;
 
-            self.send_feature_report(&report).with_context(|| {
-                format!(
-                    "Failed on chunk {}/{} (offset 0x{:04x})",
-                    chunk_idx + 1,
-                    TOTAL_CHUNKS,
-                    offset
-                )
-            })?;
-            sleep(Duration::from_millis(5));
-        }
+        // 4. Write Gaming Mode 12-button table (0x00F1..0x0121, 49 bytes) via 0x40 0x07
+        self.write_chunked_region(0x00f1, &data[0x00f1..0x0122])
+            .context("Failed to write Gaming Button Table (0x00F1..0x0121)")?;
 
-        // Step 2.5: Soft-apply / latch scan matrix registers before commit (0x40, 0x0D)
-        // Matches official Delphi FlashMemoryWriteRoutine at 0x005b7c8c
-        let _ = self.apply_soft_reset();
-        sleep(Duration::from_millis(15));
+        // 5. Write remaining profile regions (0x0122..0x07FF) via 0x40 0x07
+        self.write_chunked_region(0x0122, &data[0x0122..0x012e])
+            .context("Failed to write region 0x0122..0x012D")?;
+        self.write_chunked_region(0x0130, &data[0x0130..0x01d8])
+            .context("Failed to write region 0x0130..0x01D7")?;
+        self.write_chunked_region(0x01d8, &data[0x01d8..0x03f0])
+            .context("Failed to write region 0x01D8..0x03EF")?;
+        self.write_chunked_region(0x03f0, &data[0x03f0..0x03fa])
+            .context("Failed to write region 0x03F0..0x03F9")?;
+        self.write_chunked_region(0x03fa, &data[0x03fa..0x0400])
+            .context("Failed to write region 0x03FA..0x03FF")?;
+        self.write_chunked_region(0x0400, &data[0x0400..0x0800])
+            .context("Failed to write macro region 0x0400..0x07FF")?;
 
-        // Step 3: Commit flash write (0x40, 0x0E)
-        let mut commit_cmd = [0u8; 8];
-        commit_cmd[0] = REPORT_ID_CMD;
-        commit_cmd[1] = CMD_COMMIT_WRITE;
-        match self.device.send_feature_report(&commit_cmd) {
-            Ok(_) => (),
-            Err(e) => {
-                let err_str = e.to_string();
-                // 0x1F (ERROR_GEN_FAILURE) or 0x48F (ERROR_DEVICE_NOT_CONNECTED):
-                // Hardware acknowledge: Sunplus MCU flashes internal memory and resets USB
-                if err_str.contains("0x0000001F")
-                    || err_str.contains("0x0000048F")
-                    || err_str.contains("31")
-                {
-                    // Flash successfully committed
-                } else {
-                    return Err(anyhow::Error::new(e))
-                        .context("Failed to send Commit command (0x40, 0x0E)");
-                }
-            }
-        }
-        sleep(Duration::from_millis(250));
+        sleep(Duration::from_millis(50));
 
         Ok(())
     }
@@ -283,15 +334,24 @@ impl Em624Device {
         Ok(profile_data)
     }
 
-    /// Transmit Opcode 0x40 0x0D (Apply Settings / Soft Reset) to mouse MCU
-    pub fn apply_soft_reset(&self) -> Result<()> {
+    /// Query the 3-byte hardware chip ID via `0x40 0x0D` followed immediately by `GetFeature(0x41)`
+    /// (`0x00560d0b` / `0x005b8b04` -> returns `[0x41, 0x82, 0x5A, 0x01, ...]`).
+    /// IMPORTANT: Never send `0x40 0x0D` without draining `GetFeature(0x41)`, or the MCU's control
+    /// endpoint remains pending and blocks button/sensor dispatch until replug.
+    #[allow(dead_code)]
+    pub fn read_chip_id(&self) -> Result<[u8; 8]> {
         let mut cmd = [0u8; 8];
         cmd[0] = REPORT_ID_CMD;
-        cmd[1] = CMD_APPLY_SETTINGS;
+        cmd[1] = CMD_APPLY_SETTINGS; // 0x0D (Hardware Chip ID Query)
         self.send_feature_report(&cmd)
-            .context("Failed to send Apply/Soft-Reset command (0x40, 0x0D)")?;
+            .context("Failed to send Chip ID query (0x40, 0x0D)")?;
         sleep(Duration::from_millis(15));
-        Ok(())
+        let mut resp = [0u8; 8];
+        resp[0] = REPORT_ID_DATA; // 0x41
+        self.get_feature_report(&mut resp)
+            .context("Failed to drain Chip ID response (0x41)")?;
+        sleep(Duration::from_millis(15));
+        Ok(resp)
     }
 
     /// Write 1 to 4 raw hardware registers via real-time Opcode 0x40 0x05 (Delphi direct setter)
