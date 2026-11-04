@@ -91,6 +91,11 @@ checksum = (sum(sector_bytes) ^ 0x5A) & 0xFF
 
 ## 4. Profile Binary Format (`exampleProfiles/*.bin` and `*.em624`, 2048 Bytes)
 
+> **CRITICAL IMMUTABILITY MANDATE**:
+> **NEVER EVER modify the `.bin` profile files in the `exampleProfiles/` folder (`exampleProfiles/*.bin`).**
+> Treat all `exampleProfiles/*.bin` files as strictly **READ-ONLY** authentic reference points from the original official application and user's daily mouse profiles.
+> Any repairs, modified profiles, or exported configurations must be saved to `.em624` files (e.g. `exampleProfiles/*.em624`) or user-specified output paths, NEVER touching or overwriting `exampleProfiles/*.bin`.
+
 | Offset Range | Length | Description |
 |---|---|---|
 | `0x0000..0x0003` | 4 bytes | Magic Hardware Signature: `1B CF 08 B8` (Little-endian VID `0x1BCF` + PID `0x08B8`) |
@@ -239,7 +244,11 @@ Whenever new features, UI controls, hardware registers, or driver modules are ad
 - **Zero Webview Overhead**: Maintain 100% native offline Rust execution (`eframe`/`glow`). Do not add Electron, CEF, Webview2, or external JavaScript/Node runtimes to the desktop client.
 - **No Markdown Files in Shipped Packages**: Shipped `.zip` distribution bundles (`em624-windows-x64.zip`, `em624-linux-x64.zip`) must NEVER include `.md` documentation files (such as `README.md`, `LINUX.md`, `MIGRATION.md`, `BUTTON_SPEC.md`, `PLAN.md`, etc.). Distribution archives must contain exclusively the standalone binary (`em624.exe`/`em624`), `exampleProfiles/`, and `LICENSE`.
 
-### 4. Verification & Quality Gates
+### 5. Profile & File Immutability Rules
+- **NEVER EVER modify `exampleProfiles/*.bin`**: The `.bin` profile files are the user's authentic daily hardware reference profiles. Treat all `.bin` files as strictly read-only.
+- All driver mutations, fixes, exports, or test profiles must target `.em624` files or temporary paths, never altering `exampleProfiles/*.bin`.
+
+### 6. Verification & Quality Gates
 - **Format & Lint**: Every commit must pass `/mnt/c/Users/Aretzera/.cargo/bin/cargo.exe fmt --check` and `cargo clippy --all-targets -- -D warnings` with zero warnings.
 - **Automated Tests**: Maintain unit tests covering checksum formulas, packet framing, and macro bytecodes.
 - **Cross-Platform CI**: Ensure both Windows and Linux GitHub Actions runners complete with green build and packaging checks.
