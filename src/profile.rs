@@ -486,6 +486,10 @@ impl MouseProfile {
                 other => format!("Fn 0x{:02x}", other),
             },
             0x0a => "LED Mode Switch".to_string(),
+            0x10 => {
+                let off = ((p1 as u16) << 8) | (p2 as u16);
+                format!("Macro (0x{:04X}, {}B)", off, p3)
+            }
             0x00 => "None".to_string(),
             other => format!("Type 0x{:02x}", other),
         };
@@ -764,7 +768,8 @@ impl MouseProfile {
         }
     }
 
-    /// Set LED mode (0..=7) in register 0x00A5 (`0x81..0x87` when ON, or `raw[0x00A5] & 0x7F` when OFF).
+    /// Set LED mode (0..=7) in register 0x00A5 (`0x81..0x87` when ON, or `raw[0x00A5] & 0x7F` when OFF)
+    /// and sync `0x03F8` MCULED sub-mode footer (`cb_MCULEDNumChange` `0x00571424`).
     pub fn set_led_mode(&mut self, mode: u8) {
         if self.raw.len() != PROFILE_SIZE {
             return;
@@ -775,6 +780,10 @@ impl MouseProfile {
             self.raw[0x00a5] = base;
         } else {
             self.raw[0x00a5] = 0x80 | (clean_mode + 1);
+            if clean_mode <= 5 {
+                self.raw[0x03f8] = clean_mode;
+                self.raw[0x03f9] = 0x04;
+            }
         }
         self.recalculate_checksums();
     }
@@ -797,7 +806,8 @@ impl MouseProfile {
         }
     }
 
-    /// Set LED speed step (1..=8) in register 0x0038 (`[0x0A, 0x28, 0x46, 0x64, 0x82, 0xA0, 0xBE, 0xDC]`).
+    /// Set LED speed step (1..=8) in register 0x0038 (`[0x0A, 0x28, 0x46, 0x64, 0x82, 0xA0, 0xBE, 0xDC]`)
+    /// and sync `0x03FA..0x03FD` MCULED speed footer (`slider_MCULEDStepMouseUp` `0x005b1114`).
     /// Preserves hardware fuse register 0x0007 (`0x7F`).
     pub fn set_led_speed(&mut self, speed: u8) {
         if self.raw.len() != PROFILE_SIZE {
@@ -806,6 +816,11 @@ impl MouseProfile {
         const SPEED_TABLE: [u8; 8] = [0x0a, 0x28, 0x46, 0x64, 0x82, 0xa0, 0xbe, 0xdc];
         let idx = (speed.clamp(1, 8) - 1) as usize;
         self.raw[0x0038] = SPEED_TABLE[idx];
+        let mcu_step = 5u8.saturating_sub(speed.clamp(1, 5));
+        self.raw[0x03fa] = mcu_step | 0x10;
+        self.raw[0x03fb] = mcu_step;
+        self.raw[0x03fc] = mcu_step;
+        self.raw[0x03fd] = mcu_step;
         self.recalculate_checksums();
     }
 

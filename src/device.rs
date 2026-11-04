@@ -249,7 +249,12 @@ impl Em624Device {
     /// 3. Sectors >= `0x00C0` (Office Buttons `0x00C0..0x00F0`, Gaming Buttons `0x00F1..0x0121`, Gun/Footer/Macro regions
     ///    `0x0122..0x07FF`) via `0x40 0x07` + 7-byte `0x41` chunks (`FUN_005b888c`).
     /// 4. Final hardware reload trigger `[0x40, 0x07, 0xB4, 0x30, 0x01, 0x00, 0x00, 0x00]` (`0x005a04ee..0x005a0502`).
-    pub fn write_profile(&self, data: &[u8]) -> Result<()> {
+    ///
+    /// Flash an entire 2048-byte configuration profile to mouse memory with a progress callback `(fraction_0_to_1, stage_msg)`.
+    pub fn write_profile_with_progress<F>(&self, data: &[u8], mut on_progress: F) -> Result<()>
+    where
+        F: FnMut(f32, &str),
+    {
         if data.len() != PROFILE_SIZE {
             bail!(
                 "Invalid profile size: expected {} bytes, got {}",
@@ -258,23 +263,46 @@ impl Em624Device {
             );
         }
 
-        // 1. Write Sector 0 (0x0000..0x00A3, 164 bytes) via 0x40 0x05 (3-byte register writes)
-        self.write_registers_3b(0x0000, &data[0x0000..0x00a4])
-            .context("Failed to write Sector 0 (0x0000..0x00A3) via 0x40 0x05")?;
+        // 1. Write Sector 0 (0x0000..0x00A3, 164 bytes = 55 chunks of 3B) via 0x40 0x05
+        let s0_chunks: Vec<&[u8]> = data[0x0000..0x00a4].chunks(3).collect();
+        for (idx, chunk) in s0_chunks.iter().enumerate() {
+            let addr = (idx as u16) * 3;
+            let mut cmd = [0u8; 8];
+            cmd[0] = REPORT_ID_CMD;
+            cmd[1] = 0x05;
+            cmd[2] = ((addr >> 8) & 0xff) as u8;
+            cmd[3] = (addr & 0xff) as u8;
+            for (i, &b) in chunk.iter().enumerate() {
+                cmd[4 + i] = b;
+            }
+            cmd[7] = chunk.len() as u8;
+            self.send_feature_report(&cmd).with_context(|| {
+                format!("Failed to write Sector 0 register block at 0x{:04x}", addr)
+            })?;
+            sleep(Duration::from_millis(12));
+            if idx % 5 == 0 {
+                let frac = (idx as f32 / s0_chunks.len() as f32) * 0.35;
+                on_progress(frac, "Flashing Sector 0 (DPI, Polling, RGB)...");
+            }
+        }
 
-        // 2. Write Sector 1 (0x00A4..0x00BF, 28 bytes) via 0x40 0x05 (3-byte register writes)
+        // 2. Write Sector 1 (0x00A4..0x00BF, 28 bytes = 10 chunks of 3B) via 0x40 0x05
+        on_progress(0.36, "Flashing Sector 1 (Mode & LED Control)...");
         self.write_registers_3b(0x00a4, &data[0x00a4..0x00c0])
             .context("Failed to write Sector 1 (0x00A4..0x00BF) via 0x40 0x05")?;
 
         // 3. Write Office Mode 12-button table (0x00C0..0x00F0, 49 bytes) via 0x40 0x07
+        on_progress(0.45, "Flashing Office Button Table...");
         self.write_chunked_region(0x00c0, &data[0x00c0..0x00f1])
             .context("Failed to write Office Button Table (0x00C0..0x00F0)")?;
 
         // 4. Write Gaming Mode 12-button table (0x00F1..0x0121, 49 bytes) via 0x40 0x07
+        on_progress(0.55, "Flashing Gaming Button Table...");
         self.write_chunked_region(0x00f1, &data[0x00f1..0x0122])
             .context("Failed to write Gaming Button Table (0x00F1..0x0121)")?;
 
         // 5. Write remaining profile regions (0x0122..0x07FF) via 0x40 0x07
+        on_progress(0.65, "Flashing Hardware Macro & Footer Tables...");
         self.write_chunked_region(0x0122, &data[0x0122..0x012e])
             .context("Failed to write region 0x0122..0x012D")?;
         self.write_chunked_region(0x0130, &data[0x0130..0x01d8])
@@ -285,17 +313,45 @@ impl Em624Device {
             .context("Failed to write region 0x03F0..0x03F9")?;
         self.write_chunked_region(0x03fa, &data[0x03fa..0x0400])
             .context("Failed to write region 0x03FA..0x03FF")?;
+
+        on_progress(0.80, "Flashing Extended Macro Bank...");
         self.write_chunked_region(0x0400, &data[0x0400..0x0800])
             .context("Failed to write macro region 0x0400..0x07FF")?;
 
-        sleep(Duration::from_millis(50));
+        // Sync MCULED sub-controller command (0x40 0x01 0x07) matching cb_MCULEDNumChange (0x00571424)
+        let sub_mode = data[0x03f8];
+        if sub_mode <= 5 {
+            let mcu_cmd = [REPORT_ID_CMD, 0x01, 0x07, sub_mode, 0x00, 0x00, 0x00, 0x00];
+            let _ = self.send_feature_report(&mcu_cmd);
+            sleep(Duration::from_millis(12));
+            let step_cmd = [
+                REPORT_ID_CMD,
+                0x01,
+                0x07,
+                data[0x03fa],
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ];
+            let _ = self.send_feature_report(&step_cmd);
+        }
 
+        sleep(Duration::from_millis(50));
+        on_progress(1.0, "Flash Complete.");
         Ok(())
     }
 
-    /// Read active 2048-byte configuration profile directly from mouse flash memory
-    pub fn read_profile(&self) -> Result<Vec<u8>> {
-        // Step 1: Request full 2048-byte profile: 40 09 00 00 08 00 00 00
+    pub fn write_profile(&self, data: &[u8]) -> Result<()> {
+        self.write_profile_with_progress(data, |_, _| {})
+    }
+
+    /// Read active 2048-byte configuration profile with a progress callback `(fraction_0_to_1, stage_msg)`.
+    pub fn read_profile_with_progress<F>(&self, mut on_progress: F) -> Result<Vec<u8>>
+    where
+        F: FnMut(f32, &str),
+    {
+        on_progress(0.02, "Requesting EEPROM read (0x40 0x09)...");
         let mut read_cmd = [0u8; 8];
         read_cmd[0] = REPORT_ID_CMD;
         read_cmd[1] = CMD_READ;
@@ -309,7 +365,6 @@ impl Em624Device {
             .context("Failed to send Read command (0x40, 0x09)")?;
         sleep(Duration::from_millis(15));
 
-        // Step 2: Read all 293 chunks via GET_REPORT 0x41
         let mut profile_data = Vec::with_capacity(PROFILE_SIZE);
         for chunk_idx in 0..TOTAL_CHUNKS {
             let mut buf = [0u8; 8];
@@ -321,6 +376,10 @@ impl Em624Device {
                 profile_data.extend_from_slice(&buf[1..8]);
             }
             sleep(Duration::from_millis(4));
+            if chunk_idx % 15 == 0 || chunk_idx + 1 == TOTAL_CHUNKS {
+                let frac = (chunk_idx + 1) as f32 / TOTAL_CHUNKS as f32;
+                on_progress(frac, "Reading mouse EEPROM profile...");
+            }
         }
 
         profile_data.truncate(PROFILE_SIZE);
@@ -332,7 +391,13 @@ impl Em624Device {
             );
         }
 
+        on_progress(1.0, "Read Complete.");
         Ok(profile_data)
+    }
+
+    /// Read active 2048-byte configuration profile directly from mouse flash memory
+    pub fn read_profile(&self) -> Result<Vec<u8>> {
+        self.read_profile_with_progress(|_, _| {})
     }
 
     /// Query the 3-byte hardware chip ID via `0x40 0x0D` followed immediately by `GetFeature(0x41)`
