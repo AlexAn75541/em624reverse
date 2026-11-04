@@ -63,7 +63,8 @@ impl Em624Device {
                     target_info = Some(dev);
                     break;
                 }
-                if dev.interface_number() == 1 || target_info.is_none() {
+                if dev.interface_number() == 1 || path.contains("hidraw1") || target_info.is_none()
+                {
                     target_info = Some(dev);
                 }
             }
@@ -96,7 +97,7 @@ impl Em624Device {
                 if dev.usage_page() == 0xff00 || path.contains("&col04") {
                     return Ok(dev);
                 }
-                if dev.interface_number() == 1 || fallback.is_none() {
+                if dev.interface_number() == 1 || path.contains("hidraw1") || fallback.is_none() {
                     fallback = Some(dev);
                 }
             }

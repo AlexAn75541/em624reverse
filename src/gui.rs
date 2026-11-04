@@ -1094,9 +1094,10 @@ impl Em624App {
         }
     }
 
-    fn init_rebind_modal(&mut self, slot_idx: usize, is_gaming: bool) {
+    fn init_rebind_modal(&mut self, btn_num: u8, is_gaming: bool) {
         let base_off = if is_gaming { 0x00f1 } else { 0x00c0 };
-        let off = base_off + (slot_idx - 1) * 4;
+        let slot = MouseProfile::button_num_to_slot(btn_num);
+        let off = base_off + slot * 4;
         let mut cur = [0u8; 4];
         cur.copy_from_slice(&self.profile.raw[off..off + 4]);
         self.rebind_candidate = Some(cur);
@@ -1832,13 +1833,13 @@ impl Em624App {
 
         if apply_binding {
             if let Some(binding) = self.rebind_candidate {
-                let slot = slot_idx.saturating_sub(1);
+                let slot = MouseProfile::button_num_to_slot(slot_idx as u8);
                 self.profile.set_button_binding(slot, binding);
                 self.profile.refresh_decoded_buttons();
                 let desc = format_binding_desc(&binding);
                 self.status_message = format!(
                     "Button {} configured to '{}'. Click 'Apply Settings' to burn to mouse.",
-                    slot_idx, desc
+                    btn_num, desc
                 );
             }
             self.editing_slot = None;
@@ -2266,33 +2267,34 @@ impl Em624App {
 
                 self.hovered_button = None;
 
-                let display_order = match lang {
+                let display_order: [(usize, &str); 7] = match lang {
                     Language::English => [
                         (1, "[1] Left Click"),
-                        (4, "[2] Right Click"),
-                        (7, "[3] Middle Click"),
-                        (2, "[4] Forward (Side 1)"),
+                        (2, "[2] Right Click"),
+                        (3, "[3] Middle Click"),
+                        (4, "[4] Forward (Side 1)"),
                         (5, "[5] Backward (Side 2)"),
-                        (9, "[6] DPI + (Top Front)"),
-                        (8, "[7] DPI - (Top Back)"),
+                        (6, "[6] DPI + (Top Front)"),
+                        (7, "[7] DPI Loop (Top Back)"),
                     ],
                     Language::Vietnamese => [
                         (1, "[1] Chuột trái"),
-                        (4, "[2] Chuột phải"),
-                        (7, "[3] Chuột giữa"),
-                        (2, "[4] Tiến (Hông 1)"),
+                        (2, "[2] Chuột phải"),
+                        (3, "[3] Chuột giữa"),
+                        (4, "[4] Tiến (Hông 1)"),
                         (5, "[5] Lùi (Hông 2)"),
-                        (9, "[6] Tăng DPI (Trước)"),
-                        (8, "[7] Giảm DPI (Sau)"),
+                        (6, "[6] Tăng DPI (Trước)"),
+                        (7, "[7] Lặp DPI (Sau)"),
                     ],
                 };
 
                 let mut open_rebind_slot = None;
 
-                for (slot_idx, label) in display_order {
-                    if let Some(btn) = buttons.get(slot_idx - 1) {
-                        let is_selected = self.selected_slot == slot_idx;
-                        let is_hovered = self.hovered_button == Some(slot_idx);
+                for (btn_num, label) in display_order {
+                    let slot = MouseProfile::button_num_to_slot(btn_num as u8);
+                    if let Some(btn) = buttons.get(slot) {
+                        let is_selected = self.selected_slot == btn_num;
+                        let is_hovered = self.hovered_button == Some(btn_num);
 
                         // Background remains clean dark slate - no blinding cyan washout
                         let bg_color = if is_selected {
@@ -2324,15 +2326,15 @@ impl Em624App {
                             ui.allocate_exact_size(Vec2::new(col1_w, 36.0), egui::Sense::click());
 
                         if response.clicked() {
-                            self.selected_slot = slot_idx;
+                            self.selected_slot = btn_num;
                         }
                         if response.double_clicked() {
-                            self.selected_slot = slot_idx;
-                            open_rebind_slot = Some(slot_idx);
+                            self.selected_slot = btn_num;
+                            open_rebind_slot = Some(btn_num);
                         }
 
                         if response.hovered() {
-                            self.hovered_button = Some(slot_idx);
+                            self.hovered_button = Some(btn_num);
                             ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
                         }
 
@@ -2385,13 +2387,13 @@ impl Em624App {
                     }
                 }
 
-                if let Some(slot) = open_rebind_slot {
-                    self.init_rebind_modal(slot, is_gaming);
-                    self.editing_slot = Some((slot, is_gaming));
+                if let Some(btn_num) = open_rebind_slot {
+                    self.init_rebind_modal(btn_num as u8, is_gaming);
+                    self.editing_slot = Some((btn_num, is_gaming));
                 }
 
                 ui.add_space(10.0);
-                let sel_button_num = slot_idx_to_button_num(self.selected_slot);
+                let sel_button_num = self.selected_slot as u8;
                 let change_btn_text = Strings::change_key_bind_btn(lang, sel_button_num);
                 let change_resp = ui.add_sized(
                     [col1_w, 36.0],
@@ -2404,8 +2406,9 @@ impl Em624App {
                 );
 
                 if change_resp.clicked() {
-                    self.init_rebind_modal(self.selected_slot, is_gaming);
-                    self.editing_slot = Some((self.selected_slot, is_gaming));
+                    let btn_num = self.selected_slot as u8;
+                    self.init_rebind_modal(btn_num, is_gaming);
+                    self.editing_slot = Some((btn_num as usize, is_gaming));
                 }
             });
 
@@ -2448,17 +2451,17 @@ impl Em624App {
         // Numbered badges [1] through [7] scaled proportionally
         let badges = [
             (1, Pos2::new(cx - 46.0 * scale, cy - 75.0 * scale), "[1]"), // Button 1: Left Click
-            (4, Pos2::new(cx + 46.0 * scale, cy - 75.0 * scale), "[2]"), // Button 2: Right Click
-            (7, Pos2::new(cx, cy - 100.0 * scale), "[3]"),               // Button 3: Wheel Click
-            (2, Pos2::new(cx - 96.0 * scale, cy - 28.0 * scale), "[4]"), // Button 4: Side Forward
+            (2, Pos2::new(cx + 46.0 * scale, cy - 75.0 * scale), "[2]"), // Button 2: Right Click
+            (3, Pos2::new(cx, cy - 100.0 * scale), "[3]"),               // Button 3: Wheel Click
+            (4, Pos2::new(cx - 96.0 * scale, cy - 28.0 * scale), "[4]"), // Button 4: Side Forward
             (5, Pos2::new(cx - 96.0 * scale, cy + 14.0 * scale), "[5]"), // Button 5: Side Backward
-            (9, Pos2::new(cx, cy - 30.0 * scale), "[6]"),                // Button 6: DPI +
-            (8, Pos2::new(cx, cy - 2.0 * scale), "[7]"),                 // Button 7: DPI -
+            (6, Pos2::new(cx, cy - 30.0 * scale), "[6]"),                // Button 6: DPI +
+            (7, Pos2::new(cx, cy - 2.0 * scale), "[7]"),                 // Button 7: DPI Loop
         ];
 
-        for (slot_idx, pos, text) in badges {
-            let is_selected = self.selected_slot == slot_idx;
-            let is_hovered = self.hovered_button == Some(slot_idx);
+        for (btn_num, pos, text) in badges {
+            let is_selected = self.selected_slot == btn_num;
+            let is_hovered = self.hovered_button == Some(btn_num);
             let badge_bg = if is_selected {
                 Color32::from_rgb(0, 242, 254)
             } else if is_hovered {
@@ -2475,19 +2478,19 @@ impl Em624App {
             let badge_rect = Rect::from_center_size(pos, Vec2::new(28.0 * scale, 20.0 * scale));
             let badge_resp = ui.interact(
                 badge_rect,
-                ui.id().with(("badge", slot_idx)),
+                ui.id().with(("badge", btn_num)),
                 egui::Sense::click(),
             );
             if badge_resp.clicked() {
-                self.selected_slot = slot_idx;
+                self.selected_slot = btn_num;
             }
             if badge_resp.double_clicked() {
-                self.selected_slot = slot_idx;
-                self.init_rebind_modal(slot_idx, is_gaming);
-                self.editing_slot = Some((slot_idx, is_gaming));
+                self.selected_slot = btn_num;
+                self.init_rebind_modal(btn_num as u8, is_gaming);
+                self.editing_slot = Some((btn_num, is_gaming));
             }
             if badge_resp.hovered() {
-                self.hovered_button = Some(slot_idx);
+                self.hovered_button = Some(btn_num);
                 ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::PointingHand);
             }
 
@@ -3963,16 +3966,7 @@ pub fn format_binding_desc(bytes: &[u8; 4]) -> String {
 }
 
 fn slot_idx_to_button_num(slot_idx: usize) -> u8 {
-    match slot_idx {
-        1 => 1,
-        2 => 4,
-        4 => 2,
-        5 => 5,
-        7 => 3,
-        8 => 7,
-        9 => 6,
-        _ => slot_idx as u8,
-    }
+    slot_idx as u8
 }
 
 pub fn trim_working_set() {

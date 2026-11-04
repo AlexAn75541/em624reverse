@@ -680,6 +680,7 @@ impl MouseProfile {
 
     /// Set USB polling rate (125, 250, 500, 1000 Hz) in register 0x0004 (bits 5..4)
     /// and sync `0x00AC` (bits 1..0) so both register tables stay consistent.
+    /// Bit formula: raw[0x0004] = 0xCF | (rate_bits << 4).
     pub fn set_polling_rate(&mut self, rate_hz: u16) {
         if self.raw.len() != PROFILE_SIZE {
             return;
@@ -690,7 +691,7 @@ impl MouseProfile {
             500 => 0x02,
             _ => 0x03,
         };
-        self.raw[0x0004] = (self.raw[0x0004] & 0xcf) | (rate_bits << 4) | 0xcf;
+        self.raw[0x0004] = (self.raw[0x0004] & 0x0f) | 0xc0 | (rate_bits << 4);
         self.raw[0x00ac] = (self.raw[0x00ac] & 0xfc) | rate_bits;
         self.recalculate_checksums();
     }
@@ -831,6 +832,42 @@ impl MouseProfile {
         self.recalculate_checksums();
     }
 
+    /// Map 1-based physical button number (1..=7) to 0-based hardware slot in the 12-button table:
+    /// - Button 1 (Left Click) -> Slot 0 (0x00C0 / 0x00F1)
+    /// - Button 2 (Right Click) -> Slot 3 (0x00CC / 0x00FD)
+    /// - Button 3 (Middle Click) -> Slot 6 (0x00D8 / 0x0109)
+    /// - Button 4 (Forward / Side 1 Front) -> Slot 4 (0x00D0 / 0x0101)
+    /// - Button 5 (Backward / Side 2 Rear) -> Slot 1 (0x00C4 / 0x00F5)
+    /// - Button 6 (DPI + / Top Front) -> Slot 5 (0x00D4 / 0x0105)
+    /// - Button 7 (DPI Loop / Top Back) -> Slot 7 (0x00DC / 0x010D)
+    pub const fn button_num_to_slot(btn_num: u8) -> usize {
+        match btn_num {
+            1 => 0, // Left Click
+            2 => 3, // Right Click
+            3 => 6, // Middle Click
+            4 => 4, // Forward (Side 1 Front)
+            5 => 1, // Backward (Side 2 Rear)
+            6 => 5, // DPI + (Top Front)
+            7 => 7, // DPI Loop (Top Back)
+            _ => 0,
+        }
+    }
+
+    /// Map 0-based hardware slot in the 12-button table to 1-based physical button number (1..=7).
+    #[allow(dead_code)]
+    pub const fn slot_to_button_num(slot: usize) -> u8 {
+        match slot {
+            0 => 1,
+            3 => 2,
+            6 => 3,
+            4 => 4,
+            1 => 5,
+            5 => 6,
+            7 => 7,
+            _ => 1,
+        }
+    }
+
     /// Set keybinding for physical button slot (0..11) and synchronize to both Office and Gaming tables.
     /// Auto-fills Param3 with the Windows VK code when Type == 0x02 (Keyboard) and Param3 == 0x00,
     /// matching `Key_AssemblyClick` (0x005828b0).
@@ -846,17 +883,6 @@ impl MouseProfile {
 
         self.raw[office_offset..office_offset + 4].copy_from_slice(&binding);
         self.raw[gaming_offset..gaming_offset + 4].copy_from_slice(&binding);
-
-        // Preserve auxiliary slots 3 (0x00C8/0x00F9 = Fire Key) and 6 (0x00D4/0x0105 = DPI Loop)
-        // matching DefaultParameterConfirm1 (0x0059be7a..0x0059bf9e)
-        if slot_idx != 2 {
-            self.raw[0x00c8..0x00cc].copy_from_slice(&[0x06, 0x92, 0x00, 0x00]);
-            self.raw[0x00f9..0x00fd].copy_from_slice(&[0x06, 0x92, 0x00, 0x00]);
-        }
-        if slot_idx != 5 {
-            self.raw[0x00d4..0x00d8].copy_from_slice(&[0x08, 0x00, 0x00, 0x00]);
-            self.raw[0x0105..0x0109].copy_from_slice(&[0x08, 0x00, 0x00, 0x00]);
-        }
 
         self.raw[0x00a4] = 0x01; // Gaming Mode active (0x01 in all 6 original EM624 .bin files)
         self.raw[0x00a8] = 0x0f; // Enable button matrix
