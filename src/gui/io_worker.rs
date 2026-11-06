@@ -296,16 +296,14 @@ impl Em624App {
         } else {
             "Office Mode"
         };
-        self.profile.is_gaming_mode = new_is_gaming;
         self.active_tab = if new_is_gaming {
             Tab::GameMode
         } else {
             Tab::OfficeMode
         };
-        self.profile.raw[0x00a4] = mode_byte;
+        self.profile.set_active_mode(new_is_gaming);
         self.sync_settings_to_profile();
-        self.profile.raw[0x00a4] = mode_byte;
-        self.profile.recalculate_checksums();
+        self.profile.set_active_mode(new_is_gaming);
         self.save_to_cached_profile();
 
         self.status_message = format!("Switched to {}.", mode_name);

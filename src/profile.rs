@@ -648,6 +648,10 @@ impl MouseProfile {
             self.raw[0x00a4] = 0x01;
             self.raw[0x00a8] = 0x0f;
             self.raw[0x00aa] = 0x18;
+        } else {
+            self.raw[0x00a4] = 0x00;
+            self.raw[0x00a8] = 0x00;
+            self.raw[0x00aa] = 0x00;
         }
         // Preserve upper 3 bits of 0x00A6 (active stage count) and clamp current stage index (bits 2..0) to 0..5
         let upper = self.raw[0x00a6] & 0x38;
@@ -681,6 +685,21 @@ impl MouseProfile {
             2 => 500,
             _ => 1000,
         }
+    }
+
+    /// Set active hardware mode (Office Mode 0x00 vs Gaming Mode 0x01) and companion registers.
+    pub fn set_active_mode(&mut self, is_gaming: bool) {
+        self.is_gaming_mode = is_gaming;
+        if is_gaming {
+            self.raw[0x00a4] = 0x01;
+            self.raw[0x00a8] = 0x0f;
+            self.raw[0x00aa] = 0x18;
+        } else {
+            self.raw[0x00a4] = 0x00;
+            self.raw[0x00a8] = 0x00;
+            self.raw[0x00aa] = 0x00;
+        }
+        self.recalculate_checksums();
     }
 
     /// Set USB polling rate (125, 250, 500, 1000 Hz) in register 0x0004 (bits 5..4)
