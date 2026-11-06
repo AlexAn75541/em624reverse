@@ -448,6 +448,55 @@ impl Em624Device {
         Ok(profile_data)
     }
 
+    /// Read an arbitrary slice of registers/EEPROM using Opcode 0x40 0x09 (`FUN_005b8b04` at `0x005b8b04`).
+    /// Dispatches `[0x40, 0x09, addr_msb, addr_lsb, len_msb, len_lsb, 0, 0]`, then drains 7-byte chunks via `0x41`.
+    /// Used by Delphi to query active mode (`0x00A4`, 1 byte) and active DPI stage (`0x00A6`, 1 byte) in real-time.
+    #[allow(dead_code)]
+    pub fn read_registers(&self, offset: u16, len: u16) -> Result<Vec<u8>> {
+        if len == 0 {
+            return Ok(Vec::new());
+        }
+        let read_cmd = [
+            REPORT_ID_CMD,
+            CMD_READ, // 0x09
+            ((offset >> 8) & 0xff) as u8,
+            (offset & 0xff) as u8,
+            ((len >> 8) & 0xff) as u8,
+            (len & 0xff) as u8,
+            0x00,
+            0x00,
+        ];
+        self.send_feature_report(&read_cmd).with_context(|| {
+            format!(
+                "Failed to send Read command (0x40 0x09) for offset 0x{:04X} len {}",
+                offset, len
+            )
+        })?;
+        sleep(Duration::from_millis(15));
+
+        let num_chunks = (len as usize).div_ceil(CHUNK_SIZE);
+        let mut result = Vec::with_capacity(num_chunks * CHUNK_SIZE);
+        for chunk_idx in 0..num_chunks {
+            let mut buf = [0u8; 8];
+            buf[0] = REPORT_ID_DATA; // 0x41
+            let read_len = self.get_feature_report(&mut buf).with_context(|| {
+                format!(
+                    "Failed reading chunk {}/{} at offset 0x{:04X}",
+                    chunk_idx + 1,
+                    num_chunks,
+                    offset
+                )
+            })?;
+            if read_len > 1 {
+                result.extend_from_slice(&buf[1..8]);
+            }
+            sleep(Duration::from_millis(4));
+        }
+
+        result.truncate(len as usize);
+        Ok(result)
+    }
+
     /// Read active 2048-byte configuration profile directly from mouse flash memory
     pub fn read_profile(&self) -> Result<Vec<u8>> {
         self.read_profile_with_progress(|_, _| {})

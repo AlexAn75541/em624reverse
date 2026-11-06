@@ -353,6 +353,14 @@ class HidrawVendorDevice:
         vprint(f"RX GetFeature({self.devnode}, 0x{report_id:02X}): [{out.hex(' ')}]")
         return out
 
+    def read_chip_id(self) -> bytes:
+        cmd = bytes([0x40, 0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
+        self.set_feature(cmd)
+        time.sleep(0.015)
+        resp = self.get_feature(0x41)
+        time.sleep(0.015)
+        return resp
+
     def send_cmd_0x40(self, b1: int, b2: int, b3: int, b4: int, b5: int, b6: int, b7: int) -> None:
         pkt = bytes([0x40, b1 & 0xFF, b2 & 0xFF, b3 & 0xFF, b4 & 0xFF, b5 & 0xFF, b6 & 0xFF, b7 & 0xFF])
         self.set_feature(pkt)
@@ -556,8 +564,8 @@ def do_probe() -> bool:
         print(f"[LIVE-USBIP] Opening vendor configuration node: {devnode}")
         dev = HidrawVendorDevice(devnode)
         try:
-            dev.send_cmd_0x40(0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-            print("[LIVE-USBIP] Sent Handshake Opcode 0x40 0x0D")
+            chip_id = dev.read_chip_id()
+            print(f"[LIVE-USBIP] Hardware Chip ID query response (0x40 0x0D -> 0x41): [{chip_id.hex(' ')}]")
             live_buf = dev.read_profile_2048()
             live_out = LOG_DIR / "live_readback.em624"
             live_out.write_bytes(live_buf)
