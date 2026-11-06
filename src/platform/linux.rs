@@ -9,11 +9,14 @@ use crate::device::Em624Device;
 use crate::gui::chrono_or_simple_time;
 
 pub fn trim_working_set() {
-    extern "C" {
-        fn malloc_trim(pad: usize) -> i32;
-    }
-    unsafe {
-        let _ = malloc_trim(0);
+    #[cfg(target_env = "gnu")]
+    {
+        extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        unsafe {
+            let _ = malloc_trim(0);
+        }
     }
 }
 

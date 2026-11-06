@@ -374,7 +374,9 @@ fn process_raw_input(lparam: LPARAM) {
         return;
     }
 
-    let mut buffer = vec![0u8; size as usize];
+    // Allocate buffer with 8-byte alignment matching align_of::<RAWINPUT>() to prevent unaligned reference UB
+    let num_u64s = (size as usize).div_ceil(std::mem::size_of::<u64>());
+    let mut buffer = vec![0u64; num_u64s];
     let bytes_read = unsafe {
         GetRawInputData(
             lparam as HRAWINPUT,
@@ -385,7 +387,7 @@ fn process_raw_input(lparam: LPARAM) {
         )
     };
 
-    if bytes_read == u32::MAX {
+    if bytes_read == u32::MAX || (bytes_read as usize) < std::mem::size_of::<RAWINPUTHEADER>() {
         return;
     }
 
@@ -490,6 +492,10 @@ fn get_device_name(h_device: HANDLE) -> String {
     };
     if res == u32::MAX {
         return String::new();
+    }
+    // Truncate at null terminator if present
+    if let Some(pos) = name.iter().position(|&c| c == 0) {
+        name.truncate(pos);
     }
     String::from_utf16_lossy(&name)
 }
