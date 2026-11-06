@@ -192,8 +192,10 @@ impl Em624App {
         let img_h = base_h * 0.80;
 
         let scale = (img_h / 380.0).clamp(0.65, 1.25);
-        let card_w = (img_w + 100.0 * scale).min(max_card_w);
-        let card_h = (img_h + 40.0 * scale).min(max_card_h);
+        let top_pad = 36.0 * scale;
+        let bottom_pad = 20.0 * scale;
+        let card_w = (img_w + 110.0 * scale).min(max_card_w);
+        let card_h = (img_h + top_pad + bottom_pad).min(max_card_h);
 
         let (rect, _response) =
             ui.allocate_exact_size(Vec2::new(card_w, card_h), egui::Sense::hover());
@@ -207,8 +209,8 @@ impl Em624App {
             Stroke::new(1.0_f32, Color32::from_rgb(40, 50, 68)),
         );
 
-        // Center mouse texture inside card
-        let img_center = rect.center();
+        // Mouse texture positioned with top margin so badge (3) is fully visible
+        let img_center = Pos2::new(rect.center().x, rect.min.y + top_pad + img_h * 0.5);
         let img_rect = Rect::from_center_size(img_center, Vec2::new(img_w, img_h));
 
         // Paint Mouse Texture with cropped UV to remove dead transparent borders
@@ -241,7 +243,7 @@ impl Em624App {
         // Callout badges positioned clearly with leader lines
         let badge_left = Pos2::new(pt_left.x - 28.0 * scale, pt_left.y - 20.0 * scale);
         let badge_right = Pos2::new(pt_right.x + 28.0 * scale, pt_right.y - 20.0 * scale);
-        let badge_wheel = Pos2::new(pt_wheel.x, img_min.y - 12.0 * scale);
+        let badge_wheel = Pos2::new(pt_wheel.x, img_min.y - 14.0 * scale);
         let badge_fwd = Pos2::new(img_min.x - 22.0 * scale, pt_fwd.y);
         let badge_back = Pos2::new(img_min.x - 22.0 * scale, pt_back.y);
         let badge_dpi_plus = Pos2::new(pt_dpi_plus.x + 36.0 * scale, pt_dpi_plus.y - 8.0 * scale);
@@ -375,16 +377,6 @@ impl Em624App {
             self.selected_slot = slot;
             self.init_rebind_modal(slot_idx_to_button_num(slot), is_gaming);
         }
-
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new("[HUANO 50M Blue Dot Switches | SPCP6662 Optical Sensor | 1000Hz Ultra Polling]")
-                    .monospace()
-                    .size(9.5)
-                    .color(Color32::from_rgb(100, 125, 160)),
-            );
-        });
     }
 }
 
