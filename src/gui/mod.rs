@@ -8,6 +8,7 @@ pub mod mode_controller;
 pub mod rebind_modal;
 pub mod settings_tab;
 pub mod status_bar;
+pub mod telemetry_tab;
 
 pub use config::{
     chrono_or_simple_time, configure_fonts, format_time_date_log, icon_label, icon_label_colored,
@@ -80,6 +81,22 @@ pub struct Em624App {
     font_variants_loading: bool,
     pub io_rx: Option<std::sync::mpsc::Receiver<IoProgressMsg>>,
     pub io_progress: Option<f32>,
+    // Telemetry & Diagnostics Cockpit
+    pub telemetry_samples: Vec<f32>,
+    pub telemetry_last_cursor_pos: Option<egui::Pos2>,
+    pub telemetry_last_motion_time: Option<std::time::Instant>,
+    pub telemetry_current_hz: f32,
+    pub telemetry_peak_hz: f32,
+    pub telemetry_avg_hz: f32,
+    pub telemetry_min_hz: f32,
+    pub telemetry_total_events: u64,
+    pub telemetry_clicks: u32,
+    pub telemetry_click_down_instant: Option<std::time::Instant>,
+    pub telemetry_last_hold_ms: f32,
+    pub telemetry_min_hold_ms: f32,
+    pub telemetry_max_hold_ms: f32,
+    pub telemetry_cps: f32,
+    pub telemetry_recent_clicks: Vec<std::time::Instant>,
 }
 
 impl Drop for Em624App {
@@ -235,6 +252,21 @@ impl Default for Em624App {
             font_variants_loading: false,
             io_rx: None,
             io_progress: None,
+            telemetry_samples: Vec::with_capacity(128),
+            telemetry_last_cursor_pos: None,
+            telemetry_last_motion_time: None,
+            telemetry_current_hz: 0.0,
+            telemetry_peak_hz: 0.0,
+            telemetry_avg_hz: 0.0,
+            telemetry_min_hz: 0.0,
+            telemetry_total_events: 0,
+            telemetry_clicks: 0,
+            telemetry_click_down_instant: None,
+            telemetry_last_hold_ms: 0.0,
+            telemetry_min_hold_ms: 0.0,
+            telemetry_max_hold_ms: 0.0,
+            telemetry_cps: 0.0,
+            telemetry_recent_clicks: Vec::with_capacity(64),
         };
 
         app.sync_from_profile();
@@ -761,6 +793,11 @@ impl eframe::App for Em624App {
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
+                    Tab::Telemetry,
+                    icon_label_spaced(Icons::CHART_BAR, Strings::tab_telemetry(self.config.language), 8.0),
+                );
+                ui.selectable_value(
+                    &mut self.active_tab,
                     Tab::Settings,
                     icon_label(Icons::SETTINGS, Strings::tab_settings(self.config.language)),
                 );
@@ -784,6 +821,7 @@ impl eframe::App for Em624App {
                     Tab::Advanced => self.render_advanced_tab(ui),
                     Tab::LedLighting => self.render_led_tab(ui),
                     Tab::MacroManager => self.render_macro_tab(ui),
+                    Tab::Telemetry => self.render_telemetry_tab(ui),
                     Tab::Settings => self.render_settings_tab(ui),
                 });
         });

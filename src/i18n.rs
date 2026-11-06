@@ -61,6 +61,13 @@ impl Strings {
         }
     }
 
+    pub fn tab_telemetry(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Telemetry",
+            Language::Vietnamese => "Đo Lường & Độ Trễ",
+        }
+    }
+
     pub fn tab_settings(lang: Language) -> &'static str {
         match lang {
             Language::English => "App Settings",

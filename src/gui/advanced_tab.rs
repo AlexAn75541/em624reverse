@@ -1,7 +1,7 @@
 use super::Em624App;
 use crate::i18n::Strings;
 use crate::profile::OFFICIAL_DPI_STEPS;
-use eframe::egui::{self, Color32};
+use eframe::egui::{self, Color32, Pos2, Rect, Stroke, Vec2};
 
 impl Em624App {
     pub fn render_advanced_tab(&mut self, ui: &mut egui::Ui) {
@@ -113,6 +113,52 @@ impl Em624App {
                         .small()
                         .color(Color32::from_rgb(140, 160, 190)),
                     );
+                    ui.add_space(6.0);
+
+                    // Visual DPI Spectrum Bars
+                    let (num_stages, current_stage_idx) = self.profile.get_active_dpi_config();
+                    let spectrum_h = 32.0_f32;
+                    let (spec_rect, _) = ui.allocate_exact_size(
+                        Vec2::new(ui.available_width() - 8.0, spectrum_h),
+                        egui::Sense::hover(),
+                    );
+                    let spec_painter = ui.painter_at(spec_rect);
+                    spec_painter.rect(
+                        spec_rect,
+                        4.0,
+                        Color32::from_rgb(14, 18, 26),
+                        Stroke::new(1.0_f32, Color32::from_rgb(35, 45, 65)),
+                    );
+
+                    let stage_w = (spec_rect.width() - 8.0) / (num_stages as f32).max(1.0);
+                    for s in 0..num_stages as usize {
+                        let step_idx = self.profile.dpi_stages[s].level_index.min(14) as usize;
+                        let dpi_val = OFFICIAL_DPI_STEPS[step_idx];
+                        let c = &self.profile.dpi_stages[s].color;
+                        let bar_color = Color32::from_rgb(c.r, c.g, c.b);
+                        let is_cur = s == current_stage_idx as usize;
+
+                        let x0 = spec_rect.min.x + 4.0 + s as f32 * stage_w;
+                        let bar_rect = Rect::from_min_max(
+                            Pos2::new(x0 + 2.0, spec_rect.min.y + 3.0),
+                            Pos2::new(x0 + stage_w - 2.0, spec_rect.max.y - 3.0),
+                        );
+
+                        spec_painter.rect(
+                            bar_rect,
+                            3.0,
+                            if is_cur { bar_color } else { Color32::from_rgba_premultiplied(c.r / 3, c.g / 3, c.b / 3, 200) },
+                            Stroke::new(if is_cur { 1.5_f32 } else { 1.0_f32 }, if is_cur { Color32::WHITE } else { bar_color }),
+                        );
+
+                        spec_painter.text(
+                            bar_rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            format!("S{}: {}", s + 1, dpi_val),
+                            egui::FontId::monospace(9.5),
+                            if is_cur { Color32::BLACK } else { Color32::from_rgb(220, 230, 245) },
+                        );
+                    }
                     ui.add_space(8.0);
 
                     egui::Grid::new("dpi_grid")
@@ -248,27 +294,44 @@ impl Em624App {
                     ui.add_space(6.0);
 
                     let current_rate = self.profile.get_polling_rate();
-                    let mut rate_sel = match current_rate {
-                        125 => 0,
-                        250 => 1,
-                        500 => 2,
-                        1000 => 3,
-                        _ => 3,
-                    };
+                    let rates = [
+                        (125, "125 Hz", "8 ms"),
+                        (250, "250 Hz", "4 ms"),
+                        (500, "500 Hz", "2 ms"),
+                        (1000, "1000 Hz", "1 ms"),
+                    ];
 
                     let mut changed_rate = None;
                     ui.horizontal(|ui| {
-                        if ui.radio_value(&mut rate_sel, 0, "125 Hz (8 ms)").clicked() {
-                            changed_rate = Some(125);
-                        }
-                        if ui.radio_value(&mut rate_sel, 1, "250 Hz (4 ms)").clicked() {
-                            changed_rate = Some(250);
-                        }
-                        if ui.radio_value(&mut rate_sel, 2, "500 Hz (2 ms)").clicked() {
-                            changed_rate = Some(500);
-                        }
-                        if ui.radio_value(&mut rate_sel, 3, "1000 Hz (1 ms)").clicked() {
-                            changed_rate = Some(1000);
+                        for (rate, label, latency) in &rates {
+                            let is_active = current_rate == *rate;
+                            let (bg_col, stroke_col, text_col) = if is_active {
+                                (
+                                    Color32::from_rgb(0, 180, 230),
+                                    Color32::from_rgb(0, 242, 254),
+                                    Color32::BLACK,
+                                )
+                            } else {
+                                (
+                                    Color32::from_rgb(20, 26, 38),
+                                    Color32::from_rgb(45, 60, 85),
+                                    Color32::from_rgb(180, 200, 230),
+                                )
+                            };
+
+                            let btn_text = egui::RichText::new(format!("{} ({})", label, latency))
+                                .size(11.0)
+                                .strong()
+                                .color(text_col);
+
+                            let btn = egui::Button::new(btn_text)
+                                .fill(bg_col)
+                                .stroke(Stroke::new(1.0_f32, stroke_col))
+                                .rounding(4.0);
+
+                            if ui.add(btn).clicked() {
+                                changed_rate = Some(*rate);
+                            }
                         }
                     });
 
@@ -280,7 +343,7 @@ impl Em624App {
                         );
                     }
 
-                    if rate_sel == 3 {
+                    if current_rate == 1000 {
                         ui.add_space(2.0);
                         ui.label(
                             egui::RichText::new(
@@ -290,6 +353,35 @@ impl Em624App {
                             .color(Color32::from_rgb(140, 180, 230)),
                         );
                     }
+                });
+
+                ui.add_space(8.0);
+                ui.group(|ui| {
+                    ui.horizontal(|ui| {
+                        ui.heading("Sensor Optical DSP Axis Matrix");
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(
+                                egui::RichText::new("[LOCKED 180°]")
+                                    .monospace()
+                                    .size(10.0)
+                                    .color(Color32::from_rgb(46, 213, 115)),
+                            );
+                        });
+                    });
+                    ui.label(
+                        egui::RichText::new(
+                            "SPCP6662 Optical DSP Coordinate Transformation (Register Byte 0x0006 = 0x7F).",
+                        )
+                        .small()
+                        .color(pal.text_secondary),
+                    );
+                    ui.label(
+                        egui::RichText::new(
+                            "Safety Guard: Enforces 180° rotation matching physical PCB sensor chassis orientation. Prevents 90° tracking inversion.",
+                        )
+                        .small()
+                        .color(Color32::from_rgb(140, 180, 230)),
+                    );
                 });
             });
         });

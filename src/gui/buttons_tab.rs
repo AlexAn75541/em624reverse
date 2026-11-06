@@ -283,6 +283,34 @@ impl Em624App {
                 if ui.input(|i| i.pointer.primary_clicked()) {
                     clicked_slot = Some(*slot_idx);
                 }
+
+                let binding_text = if is_gaming {
+                    &self.profile.gaming_buttons[*slot_idx].description
+                } else {
+                    &self.profile.office_buttons[*slot_idx].description
+                };
+                egui::show_tooltip(
+                    ui.ctx(),
+                    ui.layer_id(),
+                    egui::Id::new(format!("switch_tip_{}", slot_idx)),
+                    |ui| {
+                        ui.label(
+                            egui::RichText::new(format!("Switch {}: {}", btn_num, binding_text))
+                                .strong()
+                                .color(Color32::from_rgb(0, 242, 254)),
+                        );
+                        ui.label(
+                            egui::RichText::new("Hardware: Huano Blue Shell 50M Click Rated")
+                                .small()
+                                .color(Color32::from_rgb(140, 160, 190)),
+                        );
+                        ui.label(
+                            egui::RichText::new("Click to configure rebind")
+                                .small()
+                                .color(Color32::from_rgb(46, 213, 115)),
+                        );
+                    },
+                );
             }
 
             let (fill_col, text_col, stroke_col, leader_col, dot_col) = if is_selected {
@@ -347,6 +375,16 @@ impl Em624App {
             self.selected_slot = slot;
             self.init_rebind_modal(slot_idx_to_button_num(slot), is_gaming);
         }
+
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new("[HUANO 50M Blue Dot Switches | SPCP6662 Optical Sensor | 1000Hz Ultra Polling]")
+                    .monospace()
+                    .size(9.5)
+                    .color(Color32::from_rgb(100, 125, 160)),
+            );
+        });
     }
 }
 

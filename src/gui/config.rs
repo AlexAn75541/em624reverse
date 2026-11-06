@@ -11,6 +11,7 @@ pub enum Tab {
     Advanced,
     LedLighting,
     MacroManager,
+    Telemetry,
     Settings,
 }
 
@@ -237,6 +238,8 @@ impl Icons {
     pub const FOLDER_OPEN: &'static str = "\u{f07c}";
     pub const SAVE: &'static str = "\u{f0c7}";
     pub const REFRESH: &'static str = "\u{f021}";
+    pub const CHART_BAR: &'static str = "\u{f080}";
+    pub const TACHOMETER: &'static str = "\u{f0e4}";
     pub const MOUSE: &'static str = "\u{f11b}";
     pub const KEYBOARD: &'static str = "\u{f11c}";
     pub const MEDIA: &'static str = "\u{f001}";
