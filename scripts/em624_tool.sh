@@ -354,15 +354,10 @@ class HidrawVendorDevice:
         vprint(f"RX GetFeature({self.devnode}, 0x{report_id:02X}): [{out.hex(' ')}]")
         return out
 
-    def query_status_0x41(self) -> bytes:
-        time.sleep(0.005)
-        return self.get_feature(0x41)
-
-    def send_cmd_0x40(self, b1: int, b2: int, b3: int, b4: int, b5: int, b6: int, b7: int) -> bytes:
+    def send_cmd_0x40(self, b1: int, b2: int, b3: int, b4: int, b5: int, b6: int, b7: int) -> None:
         pkt = bytes([0x40, b1 & 0xFF, b2 & 0xFF, b3 & 0xFF, b4 & 0xFF, b5 & 0xFF, b6 & 0xFF, b7 & 0xFF])
         self.set_feature(pkt)
-        time.sleep(0.005)
-        return self.query_status_0x41()
+        time.sleep(0.015)
 
     def write_registers_0x05(self, start_addr: int, data: bytes) -> None:
         for i in range(0, len(data), 3):
@@ -372,32 +367,62 @@ class HidrawVendorDevice:
             for j, val in enumerate(chunk):
                 b[4 + j] = val
             self.set_feature(bytes(b))
-            time.sleep(0.005)
-            self.query_status_0x41()
+            time.sleep(0.012)
+
+    def write_chunked_region(self, start_addr: int, slice_bytes: bytes) -> None:
+        length = len(slice_bytes)
+        start_cmd = bytes([
+            0x40,
+            0x07,
+            (start_addr >> 8) & 0xFF,
+            start_addr & 0xFF,
+            (length >> 8) & 0xFF,
+            length & 0xFF,
+            0x00,
+            0x00,
+        ])
+        self.set_feature(start_cmd)
+        time.sleep(0.012)
+        for i in range(0, length, 7):
+            chunk = slice_bytes[i:i + 7]
+            report = bytearray([0x41] + [0xFF] * 7)
+            for j, val in enumerate(chunk):
+                report[1 + j] = val
+            self.set_feature(bytes(report))
+            time.sleep(0.008)
 
     def read_profile_2048(self) -> bytes:
         print(f"  [HIDRAW] Requesting 2048-byte hardware profile from {self.devnode} (Opcode 0x40 0x09)...")
-        ack = self.send_cmd_0x40(0x09, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00)
-        print(f"  [HIDRAW] Opcode 0x09 Handshake ACK: [{ack.hex(' ')}]")
+        read_cmd = bytes([0x40, 0x09, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00])
+        self.set_feature(read_cmd)
+        time.sleep(0.015)
         out = bytearray()
         for chunk_idx in range(293):
             resp = self.get_feature(0x41)
             take = min(7, PROFILE_SIZE - len(out))
             out.extend(resp[1:1 + take])
+            time.sleep(0.004)
         return bytes(out)
 
     def sync_led_live(self, profile: bytes) -> None:
-        # 1. Write 0x0036..0x004D (LED speed 0x0038 + 6 stages 3-byte RGB 0x0039..0x004A)
+        # 1. Write 0x0036..0x004E (24 bytes = 8 chunks of 3B: covers 0x0038 speed + 0x0039..0x004D RGB colors)
         self.write_registers_0x05(0x0036, profile[0x0036:0x004E])
         # 2. Write Sector 0 checksum 0x00A3
         self.write_registers_0x05(0x00A3, profile[0x00A3:0x00A4])
         # 3. Write Sector 1 0x00A4..0x00BF (Mode 0x00A4, LED Mode 0x00A5, Stage 0x00A6, Brightness 0x00A7, Checksum 0x00BF)
         self.write_registers_0x05(0x00A4, profile[0x00A4:0x00C0])
-        # 4. Write MCULED sub-controller direct commands (0x40 0x01 0x07)
+        # 4. Write Footer 0x03F0..0x0400 via 0x40 0x07 + 0x41 chunks
+        self.write_chunked_region(0x03F0, profile[0x03F0:0x03FA])
+        self.write_chunked_region(0x03FA, profile[0x03FA:0x0400])
+        # 5. Write MCULED sub-controller direct commands (0x40 0x01 0x07)
         sub_mode = profile[0x03F8]
         if sub_mode <= 5:
-            self.send_cmd_0x40(0x01, 0x07, sub_mode, 0x00, 0x00, 0x00, 0x00)
-            self.send_cmd_0x40(0x01, 0x07, profile[0x03FA], 0x00, 0x00, 0x00, 0x00)
+            mcu_cmd = bytes([0x40, 0x01, 0x07, sub_mode, 0x00, 0x00, 0x00, 0x00])
+            self.set_feature(mcu_cmd)
+            time.sleep(0.012)
+            step_cmd = bytes([0x40, 0x01, 0x07, profile[0x03FA], 0x00, 0x00, 0x00, 0x00])
+            self.set_feature(step_cmd)
+            time.sleep(0.012)
 
 
 def discover_vendor_hidraw() -> Tuple[Optional[str], Optional[str]]:
@@ -532,8 +557,8 @@ def do_probe() -> bool:
         print(f"[LIVE-USBIP] Opening vendor configuration node: {devnode}")
         dev = HidrawVendorDevice(devnode)
         try:
-            ack = dev.send_cmd_0x40(0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
-            print(f"[LIVE-USBIP] Handshake Opcode 0x0D -> 0x41 Response: [{ack.hex(' ')}]")
+            dev.send_cmd_0x40(0x0D, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00)
+            print("[LIVE-USBIP] Sent Handshake Opcode 0x40 0x0D")
             live_buf = dev.read_profile_2048()
             live_out = LOG_DIR / "live_readback.em624"
             live_out.write_bytes(live_buf)
