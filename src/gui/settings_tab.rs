@@ -182,7 +182,15 @@ impl Em624App {
 
         ui.add_space(12.0);
         ui.group(|ui| {
-            ui.heading(format!("{} Quick Access Folders", Icons::FOLDER_OPEN));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 10.0;
+                ui.label(
+                    egui::RichText::new(Icons::FOLDER_OPEN)
+                        .heading()
+                        .color(pal.accent),
+                );
+                ui.heading("Quick Access Folders");
+            });
             ui.label(
                 egui::RichText::new(
                     "Open application folders directly in your system file explorer:",
@@ -193,13 +201,13 @@ impl Em624App {
             ui.add_space(8.0);
 
             ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
+                ui.spacing_mut().item_spacing.x = 16.0;
 
                 if ui
                     .button(icon_label_spaced(
                         Icons::FOLDER_OPEN,
                         "Open App Folder",
-                        10.0,
+                        14.0,
                     ))
                     .on_hover_text("Open folder containing em624-reversed executable")
                     .clicked()
@@ -215,7 +223,7 @@ impl Em624App {
                     .button(icon_label_spaced(
                         Icons::FOLDER_OPEN,
                         "Open Data Folder",
-                        10.0,
+                        14.0,
                     ))
                     .on_hover_text(
                         "Open master data directory containing custom profiles and macros",
@@ -231,7 +239,7 @@ impl Em624App {
                     .button(icon_label_spaced(
                         Icons::FOLDER_OPEN,
                         "Open Cache Folder",
-                        10.0,
+                        14.0,
                     ))
                     .on_hover_text("Open temporary active profile and downloaded font cache")
                     .clicked()

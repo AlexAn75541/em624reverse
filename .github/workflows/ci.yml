@@ -181,16 +181,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "pre-release" \
-            packages/em624-windows-x64.zip \
-            packages/em624-windows-arm64.zip \
-            packages/em624-linux-x64.zip \
-            --title "E-DRA EM624 Mouse Configurator (Pre-Release)" \
-            --notes-file release_notes.txt \
-            --prerelease \
-            --target "$GITHUB_SHA" || \
-          gh release upload "pre-release" \
-            packages/em624-windows-x64.zip \
-            packages/em624-windows-arm64.zip \
-            packages/em624-linux-x64.zip \
-            --clobber
+          # Swap updated build artifacts into the single continuous pre-release section on every commit
+          if ! gh release view "pre-release" > /dev/null 2>&1; then
+            gh release create "pre-release" \
+              packages/em624-windows-x64.zip \
+              packages/em624-windows-arm64.zip \
+              packages/em624-linux-x64.zip \
+              --title "E-DRA EM624 Mouse Configurator (Pre-Release)" \
+              --notes-file release_notes.txt \
+              --prerelease \
+              --target "$GITHUB_SHA"
+          else
+            gh release edit "pre-release" --notes-file release_notes.txt || true
+            gh release upload "pre-release" \
+              packages/em624-windows-x64.zip \
+              packages/em624-windows-arm64.zip \
+              packages/em624-linux-x64.zip \
+              --clobber
+          fi
