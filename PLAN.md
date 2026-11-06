@@ -108,3 +108,87 @@
    - Lighting mode `0x0018` (0=Breathing..6=Off) and brightness `0x0008` (0=Full, 1=Half) are already fully functional.
 2. **Badge Removal**:
    - Remove `[UNFINISHED]` badge from `render_led_tab` in `src/gui.rs` and `src/i18n.rs`.
+
+---
+
+## Next Major Initiative: OpenMouse-Inspired UI Rework (PLANNED)
+
+> **Status**: Architecture Designed & Audited. **Awaiting User Confirmation** to create and switch to dedicated branch `feat/openmouse-ui-rework`.
+
+### 1. Vision & Architectural Goals
+Incorporate modern, modular UI principles inspired by [OpenMouse-Project](https://github.com/OpenMouse-Project), Wootility, and Pulsar Fusion:
+1. **Hardware Topology as Primary Interface**: Mouse chassis diagram acts as an interactive canvas with responsive switch nodes and callouts.
+2. **Unified Sensor Cockpit**: Integrates 14-step calibrated DPI curves, live polling rates (`125Hz..1000Hz`), and DSP axis inversion safety lock (`0x7F` / 180°).
+3. **Visual Timeline Macro Editor**: Horizontal millisecond event tracks (KeyDown, KeyUp, Delay blocks) with real-time bytecode compilation and EEPROM slot budget bars (328 bytes / slot).
+4. **Live Telemetry & Diagnostics Dock**: Real-time polling rate jitter graph (Hz vs. time) and click debounce / latency tester backed by zero-allocation ring buffers.
+5. **Strict AGENTS.md Section 10 Compliance**:
+   - Memory Working Set strictly `<= 10 MB` with periodic `trim_working_set()` hooks.
+   - Universal scrolling via `egui::ScrollArea::both().auto_shrink([false, false])`.
+   - Zero hardcoded height clamps (no `allocate_ui_with_layout(..., ui.available_height())`).
+   - Clean typographic ASCII labels (no Nerd Font / Private Use Unicode escapes that cause tofu rendering).
+   - High-contrast AAA/AA palettes across `PitchBlackOled`, `Windows11Dark`, and `LightWhite`.
+
+### 2. Proposed Module Directory Structure (`src/gui/`)
+```
+src/gui/
+├── mod.rs                  // App entry, event routing, working-set GC coordinator (<250 lines)
+├── config.rs               // AppConfig, persistent state, master directories
+├── theme/
+│   ├── mod.rs              // Theme token resolution & WCAG contrast audit
+│   ├── tokens.rs           // Semantic tokens (surfaces, borders, text, state)
+│   └── palettes.rs         // PitchBlackOled, Windows11Dark, LightWhite
+├── shell/
+│   ├── mod.rs              // Shell layout coordinator
+│   ├── header.rs           // Hardware status banner, profile selector, connection dot
+│   ├── sidebar.rs          // Compact vertical navigation dock with ASCII badges
+│   └── footer.rs           // 2-story action bar (Flash/Read) & IO progress dock
+├── views/
+│   ├── canvas/             // Interactive Hardware Topology Canvas
+│   │   ├── mod.rs          // Canvas layout & responsive scaling
+│   │   ├── chassis.rs      // Native 600x600 texture rendering & subpixel switch pinouts
+│   │   ├── callouts.rs     // Responsive leader lines, switch node hitboxes, hover glow
+│   │   └── rebind_popover.rs // In-place non-modal button remapping drawer
+│   ├── cockpit/            // Unified DPI + Sensor Cockpit
+│   │   ├── mod.rs          // Sensor parameter orchestration
+│   │   ├── dpi_curve.rs    // 14-step calibrated SPCP6662 resolution curve
+│   │   ├── polling_rate.rs // Read-modify-write rate selector (125Hz..1000Hz)
+│   │   └── dsp_matrix.rs   // Byte 0x0006 axis orientation lock (180 deg)
+│   ├── led_studio/         // Visual LED Studio
+│   │   ├── mod.rs          // Lighting coordinator
+│   │   ├── preview.rs      // Live chassis illumination simulator
+│   │   ├── modes.rs        // 8 hardware modes (CPI Breathing, Flow, Waltz, etc.)
+│   │   └── color_palette.rs// Per-stage 24-bit RGB pickers (0x0039..0x004D)
+│   ├── macro_timeline/     // Visual Timeline Macro Editor
+│   │   ├── mod.rs          // Sequence bank & playback options
+│   │   ├── timeline.rs     // Horizontal/stacked millisecond event tracks
+│   │   ├── action_block.rs // KeyDown, KeyUp, MouseClick, Delay visual blocks
+│   │   └── compiler.rs     // Bytecode verification against EEPROM maps
+│   ├── telemetry/          // Live Telemetry Dock
+│   │   ├── mod.rs          // Telemetry dock lifecycle and ring buffers (512 capacity)
+│   │   ├── polling_chart.rs// Real-time polling rate jitter graph (Hz vs. time)
+│   │   ├── latency_test.rs // Switch debounce & click latency tester
+│   │   └── motion_feed.rs  // Raw Input / evdev coordinate delta vectors
+│   └── settings/           // System & Driver Configuration
+│       ├── mod.rs          // App settings, language, theme switcher
+│       └── font_manager.rs // Typography verification, caching, and clean loader
+└── io_worker.rs            // Non-blocking HID thread channel dispatcher
+```
+
+### 3. Phased Implementation Roadmap
+- **Phase 1: Foundation & Theme System**:
+  - Create dedicated branch `feat/openmouse-ui-rework`.
+  - Implement `theme/tokens.rs` and `theme/palettes.rs`.
+  - Implement `shell/` (`header.rs`, `sidebar.rs`, `footer.rs`) with clean ASCII indicators.
+- **Phase 2: Hardware Topology Canvas**:
+  - Implement interactive canvas with switch pins, leader lines, and anchored rebind popovers.
+  - Retain dual-table sync (`0x00C0` Office & `0x00F1` Gaming) and hardware checksum validation.
+- **Phase 3: Sensor Cockpit & LED Studio**:
+  - Implement 14-step DPI curve, Stage 6 safety clamp, polling rate selector, and live LED preview.
+- **Phase 4: Timeline Macro Studio**:
+  - Implement millisecond timeline tracks, removing all `allocate_ui_with_layout` height clamps.
+- **Phase 5: Telemetry Dock**:
+  - Implement 512-entry fixed ring buffer for live polling rate jitter and click latency testing.
+- **Phase 6: Verification & Merge**:
+  - Verify `<= 10MB` working set RAM across Windows and Linux.
+  - Verify universal scrolling down to 280x200 window resolution.
+  - Ensure zero clippy/formatting warnings before PR merge.
