@@ -17,7 +17,7 @@ pub use config::{
 };
 pub use io_worker::IoProgressMsg;
 
-use crate::i18n::{Language, Strings};
+use crate::i18n::Strings;
 use crate::macro_engine::{MacroAction, MacroBank, MacroEntry, MouseButton};
 use crate::profile::MouseProfile;
 use eframe::egui::{self, Color32, Vec2};
@@ -83,6 +83,7 @@ pub struct Em624App {
     pub io_progress: Option<f32>,
     pub pending_led_sync: Option<(std::time::Instant, String)>,
     // Telemetry & Diagnostics Cockpit
+    pub telemetry_active: bool,
     pub telemetry_samples: Vec<f32>,
     pub telemetry_last_cursor_pos: Option<egui::Pos2>,
     pub telemetry_last_motion_time: Option<std::time::Instant>,
@@ -254,6 +255,7 @@ impl Default for Em624App {
             io_rx: None,
             io_progress: None,
             pending_led_sync: None,
+            telemetry_active: true,
             telemetry_samples: Vec::with_capacity(128),
             telemetry_last_cursor_pos: None,
             telemetry_last_motion_time: None,
@@ -709,41 +711,15 @@ impl eframe::App for Em624App {
                         .color(pal.text_secondary),
                 );
 
-
-
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui
-                        .button(icon_label(Icons::REFRESH, Strings::check_connection(self.config.language)))
+                        .button(icon_label(
+                            Icons::REFRESH,
+                            Strings::check_connection(self.config.language),
+                        ))
                         .clicked()
                     {
                         self.check_connection();
-                    }
-
-                    let (theme_label, next_theme) = match self.config.theme {
-                        ThemeMode::PitchBlackOled => ("[OLED]", ThemeMode::Windows11Dark),
-                        ThemeMode::Windows11Dark => ("[Win11 Dark]", ThemeMode::LightWhite),
-                        ThemeMode::LightWhite => ("[Light White]", ThemeMode::PitchBlackOled),
-                    };
-                    if ui
-                        .button(theme_label)
-                        .on_hover_text("Click to toggle theme: Pitch Black OLED / Windows 11 Dark / High-Contrast White")
-                        .clicked()
-                    {
-                        self.config.theme = next_theme;
-                        self.config.save();
-                    }
-
-                    let (lang_label, next_lang) = match self.config.language {
-                        Language::English => ("[EN]", Language::Vietnamese),
-                        Language::Vietnamese => ("[VI]", Language::English),
-                    };
-                    if ui
-                        .button(lang_label)
-                        .on_hover_text("Click to toggle language / Chuyển đổi ngôn ngữ: English / Tiếng Việt")
-                        .clicked()
-                    {
-                        self.config.language = next_lang;
-                        self.config.save();
                     }
 
                     if self.device_connected {
@@ -790,7 +766,11 @@ impl eframe::App for Em624App {
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::LedLighting,
-                    icon_label_spaced(Icons::LIGHTBULB, Strings::tab_led(self.config.language), 5.0),
+                    icon_label_spaced(
+                        Icons::LIGHTBULB,
+                        Strings::tab_led(self.config.language),
+                        5.0,
+                    ),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
@@ -800,12 +780,20 @@ impl eframe::App for Em624App {
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Advanced,
-                    icon_label_spaced(Icons::COGS, Strings::tab_advanced(self.config.language), 12.0),
+                    icon_label_spaced(
+                        Icons::COGS,
+                        Strings::tab_advanced(self.config.language),
+                        12.0,
+                    ),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,
                     Tab::Telemetry,
-                    icon_label_spaced(Icons::CHART_BAR, Strings::tab_telemetry(self.config.language), 8.0),
+                    icon_label_spaced(
+                        Icons::CHART_BAR,
+                        Strings::tab_telemetry(self.config.language),
+                        8.0,
+                    ),
                 );
                 ui.selectable_value(
                     &mut self.active_tab,

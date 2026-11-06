@@ -159,36 +159,18 @@ impl Em624App {
                     let h = img_rect.height();
                     let cx = img_min.x + 0.500 * w;
 
-                    // 1. Scroll Wheel Glow Accent (Illuminated wheel tire & slit)
-                    let wheel_cy = img_min.y + 0.188 * h;
-                    let wheel_rect = Rect::from_center_size(
-                        Pos2::new(cx, wheel_cy),
-                        Vec2::new(w * 0.055, h * 0.088),
-                    );
-                    painter.rect_filled(
-                        wheel_rect,
-                        2.0,
-                        Color32::from_rgba_premultiplied(
-                            preview_rgb.r() / 2,
-                            preview_rgb.g() / 2,
-                            preview_rgb.b() / 2,
-                            120,
-                        ),
-                    );
-                    painter.rect_stroke(wheel_rect, 2.0, Stroke::new(1.4_f32, preview_rgb));
-
-                    // 2. E-DRA Dragon Palm Emblem (Stylized illuminated dragon crest - NO circles)
-                    let logo_cy = img_min.y + 0.700 * h;
-                    let r = w * 0.13;
+                    // 1. Lower E-DRA Palm Logo (Covering authentic logo at y_frac 0.69..0.81)
+                    let logo_cy = img_min.y + 0.751 * h;
+                    let r = w * 0.16;
                     let crest_pts = vec![
-                        Pos2::new(cx, logo_cy - r * 0.85),
-                        Pos2::new(cx + r * 0.45, logo_cy - r * 0.55),
-                        Pos2::new(cx + r * 0.80, logo_cy - r * 0.18),
-                        Pos2::new(cx + r * 0.50, logo_cy + r * 0.40),
-                        Pos2::new(cx, logo_cy + r * 0.85),
-                        Pos2::new(cx - r * 0.50, logo_cy + r * 0.40),
-                        Pos2::new(cx - r * 0.80, logo_cy - r * 0.18),
-                        Pos2::new(cx - r * 0.45, logo_cy - r * 0.55),
+                        Pos2::new(cx, logo_cy - r * 0.82),
+                        Pos2::new(cx + r * 0.50, logo_cy - r * 0.48),
+                        Pos2::new(cx + r * 0.85, logo_cy - r * 0.12),
+                        Pos2::new(cx + r * 0.55, logo_cy + r * 0.42),
+                        Pos2::new(cx, logo_cy + r * 0.82),
+                        Pos2::new(cx - r * 0.55, logo_cy + r * 0.42),
+                        Pos2::new(cx - r * 0.85, logo_cy - r * 0.12),
+                        Pos2::new(cx - r * 0.50, logo_cy - r * 0.48),
                     ];
                     painter.add(egui::Shape::convex_polygon(
                         crest_pts,
@@ -196,17 +178,17 @@ impl Em624App {
                             preview_rgb.r(),
                             preview_rgb.g(),
                             preview_rgb.b(),
-                            140,
+                            160,
                         ),
-                        Stroke::new(1.5_f32, preview_rgb),
+                        Stroke::new(1.6_f32, preview_rgb),
                     ));
 
                     // Inner dragon diamond core
                     let core_pts = vec![
-                        Pos2::new(cx, logo_cy - r * 0.30),
-                        Pos2::new(cx + r * 0.24, logo_cy + r * 0.05),
-                        Pos2::new(cx, logo_cy + r * 0.40),
-                        Pos2::new(cx - r * 0.24, logo_cy + r * 0.05),
+                        Pos2::new(cx, logo_cy - r * 0.28),
+                        Pos2::new(cx + r * 0.25, logo_cy + r * 0.08),
+                        Pos2::new(cx, logo_cy + r * 0.42),
+                        Pos2::new(cx - r * 0.25, logo_cy + r * 0.08),
                     ];
                     painter.add(egui::Shape::convex_polygon(
                         core_pts,
@@ -214,20 +196,38 @@ impl Em624App {
                             preview_rgb.r(),
                             preview_rgb.g(),
                             preview_rgb.b(),
-                            220,
+                            230,
                         ),
                         Stroke::new(1.0_f32, Color32::WHITE),
                     ));
 
-                    // 3. Rear Perimeter Skirt Underglow Strip (Contoured along actual mouse chassis edge - NO circles)
-                    let arc_pts = [
-                        Pos2::new(img_min.x + 0.20 * w, img_min.y + 0.865 * h),
-                        Pos2::new(img_min.x + 0.26 * w, img_min.y + 0.905 * h),
-                        Pos2::new(img_min.x + 0.36 * w, img_min.y + 0.935 * h),
-                        Pos2::new(img_min.x + 0.50 * w, img_min.y + 0.948 * h),
-                        Pos2::new(img_min.x + 0.64 * w, img_min.y + 0.935 * h),
-                        Pos2::new(img_min.x + 0.74 * w, img_min.y + 0.905 * h),
-                        Pos2::new(img_min.x + 0.80 * w, img_min.y + 0.865 * h),
+                    // 2. Side LED Light Strips & Rear Skirt (Contoured along chassis flanks)
+                    let left_side_pts = [
+                        Pos2::new(img_min.x + 0.075 * w, img_min.y + 0.420 * h),
+                        Pos2::new(img_min.x + 0.065 * w, img_min.y + 0.500 * h),
+                        Pos2::new(img_min.x + 0.080 * w, img_min.y + 0.600 * h),
+                        Pos2::new(img_min.x + 0.070 * w, img_min.y + 0.700 * h),
+                        Pos2::new(img_min.x + 0.080 * w, img_min.y + 0.780 * h),
+                        Pos2::new(img_min.x + 0.120 * w, img_min.y + 0.850 * h),
+                        Pos2::new(img_min.x + 0.200 * w, img_min.y + 0.890 * h),
+                    ];
+
+                    let right_side_pts = [
+                        Pos2::new(img_min.x + 0.925 * w, img_min.y + 0.420 * h),
+                        Pos2::new(img_min.x + 0.935 * w, img_min.y + 0.500 * h),
+                        Pos2::new(img_min.x + 0.920 * w, img_min.y + 0.600 * h),
+                        Pos2::new(img_min.x + 0.930 * w, img_min.y + 0.700 * h),
+                        Pos2::new(img_min.x + 0.920 * w, img_min.y + 0.780 * h),
+                        Pos2::new(img_min.x + 0.880 * w, img_min.y + 0.850 * h),
+                        Pos2::new(img_min.x + 0.800 * w, img_min.y + 0.890 * h),
+                    ];
+
+                    let rear_skirt_pts = [
+                        Pos2::new(img_min.x + 0.200 * w, img_min.y + 0.890 * h),
+                        Pos2::new(img_min.x + 0.320 * w, img_min.y + 0.930 * h),
+                        Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.945 * h),
+                        Pos2::new(img_min.x + 0.680 * w, img_min.y + 0.930 * h),
+                        Pos2::new(img_min.x + 0.800 * w, img_min.y + 0.890 * h),
                     ];
 
                     // Outer ambient diffused glow
@@ -237,22 +237,23 @@ impl Em624App {
                         preview_rgb.b() / 3,
                         40,
                     );
-                    for win in arc_pts.windows(2) {
-                        painter.line_segment([win[0], win[1]], Stroke::new(10.0_f32, halo_col));
-                    }
-                    // Mid neon glow
                     let mid_col = Color32::from_rgba_premultiplied(
                         preview_rgb.r() / 2,
                         preview_rgb.g() / 2,
                         preview_rgb.b() / 2,
                         95,
                     );
-                    for win in arc_pts.windows(2) {
-                        painter.line_segment([win[0], win[1]], Stroke::new(5.0_f32, mid_col));
-                    }
-                    // Crisp core neon line
-                    for win in arc_pts.windows(2) {
-                        painter.line_segment([win[0], win[1]], Stroke::new(2.2_f32, preview_rgb));
+
+                    for strip in [&left_side_pts[..], &right_side_pts[..], &rear_skirt_pts[..]] {
+                        for win in strip.windows(2) {
+                            painter.line_segment([win[0], win[1]], Stroke::new(9.0_f32, halo_col));
+                        }
+                        for win in strip.windows(2) {
+                            painter.line_segment([win[0], win[1]], Stroke::new(4.5_f32, mid_col));
+                        }
+                        for win in strip.windows(2) {
+                            painter.line_segment([win[0], win[1]], Stroke::new(2.0_f32, preview_rgb));
+                        }
                     }
 
                     ui.add_space(4.0);

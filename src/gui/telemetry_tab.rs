@@ -10,7 +10,53 @@ impl Em624App {
         let now = Instant::now();
 
         ui.add_space(6.0);
-        ui.heading(Strings::tab_telemetry(lang));
+        ui.horizontal(|ui| {
+            ui.heading(Strings::tab_telemetry(lang));
+
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if self.telemetry_active {
+                    let stop_btn = egui::Button::new(
+                        RichText::new("Stop Telemetry")
+                            .color(Color32::from_rgb(239, 68, 68))
+                            .strong(),
+                    );
+                    if ui
+                        .add(stop_btn)
+                        .on_hover_text("Pause real-time sensor polling rate telemetry and click latency monitoring")
+                        .clicked()
+                    {
+                        self.telemetry_active = false;
+                    }
+                } else {
+                    let start_btn = egui::Button::new(
+                        RichText::new("Start Telemetry")
+                            .color(Color32::from_rgb(16, 185, 129))
+                            .strong(),
+                    );
+                    if ui
+                        .add(start_btn)
+                        .on_hover_text("Resume real-time sensor polling rate telemetry and click latency monitoring")
+                        .clicked()
+                    {
+                        self.telemetry_active = true;
+                    }
+                }
+
+                let status_badge = if self.telemetry_active {
+                    RichText::new("[ACTIVE]")
+                        .color(Color32::from_rgb(16, 185, 129))
+                        .small()
+                        .strong()
+                } else {
+                    RichText::new("[PAUSED]")
+                        .color(Color32::from_rgb(239, 68, 68))
+                        .small()
+                        .strong()
+                };
+                ui.label(status_badge);
+            });
+        });
+
         ui.label(
             RichText::new(
                 "Real-time sensor polling rate telemetry, packet jitter analysis, and switch click latency diagnostics.",
@@ -23,50 +69,55 @@ impl Em624App {
         // Hardware Polling Rate from EEPROM profile
         let configured_rate = self.profile.get_polling_rate();
 
-        // Update motion polling rate samples
-        let current_pos = ui.input(|i| i.pointer.latest_pos());
-        if let Some(pos) = current_pos {
-            if let Some(last_pos) = self.telemetry_last_cursor_pos {
-                let delta = pos - last_pos;
-                if delta.length_sq() > 0.5 {
-                    if let Some(last_time) = self.telemetry_last_motion_time {
-                        let dt = (now - last_time).as_secs_f32();
-                        if dt > 0.0005 && dt < 0.2 {
-                            let inst_hz = 1.0 / dt;
-                            self.telemetry_current_hz = inst_hz;
-                            self.telemetry_total_events += 1;
+        if self.telemetry_active {
+            // Update motion polling rate samples
+            let current_pos = ui.input(|i| i.pointer.latest_pos());
+            if let Some(pos) = current_pos {
+                if let Some(last_pos) = self.telemetry_last_cursor_pos {
+                    let delta = pos - last_pos;
+                    if delta.length_sq() > 0.5 {
+                        if let Some(last_time) = self.telemetry_last_motion_time {
+                            let dt = (now - last_time).as_secs_f32();
+                            if dt > 0.0005 && dt < 0.2 {
+                                let inst_hz = 1.0 / dt;
+                                self.telemetry_current_hz = inst_hz;
+                                self.telemetry_total_events += 1;
 
-                            if inst_hz > self.telemetry_peak_hz {
-                                self.telemetry_peak_hz = inst_hz;
-                            }
-                            if self.telemetry_min_hz == 0.0 || inst_hz < self.telemetry_min_hz {
-                                self.telemetry_min_hz = inst_hz;
-                            }
+                                if inst_hz > self.telemetry_peak_hz {
+                                    self.telemetry_peak_hz = inst_hz;
+                                }
+                                if self.telemetry_min_hz == 0.0 || inst_hz < self.telemetry_min_hz {
+                                    self.telemetry_min_hz = inst_hz;
+                                }
 
-                            // Exponential moving average for smooth display
-                            if self.telemetry_avg_hz == 0.0 {
-                                self.telemetry_avg_hz = inst_hz;
-                            } else {
-                                self.telemetry_avg_hz =
-                                    self.telemetry_avg_hz * 0.92 + inst_hz * 0.08;
-                            }
+                                // Exponential moving average for smooth display
+                                if self.telemetry_avg_hz == 0.0 {
+                                    self.telemetry_avg_hz = inst_hz;
+                                } else {
+                                    self.telemetry_avg_hz =
+                                        self.telemetry_avg_hz * 0.92 + inst_hz * 0.08;
+                                }
 
-                            self.telemetry_samples.push(inst_hz);
-                            if self.telemetry_samples.len() > 120 {
-                                self.telemetry_samples.remove(0);
+                                self.telemetry_samples.push(inst_hz);
+                                if self.telemetry_samples.len() > 120 {
+                                    self.telemetry_samples.remove(0);
+                                }
                             }
                         }
+                        self.telemetry_last_motion_time = Some(now);
                     }
-                    self.telemetry_last_motion_time = Some(now);
                 }
+                self.telemetry_last_cursor_pos = Some(pos);
             }
-            self.telemetry_last_cursor_pos = Some(pos);
-        }
 
-        // Update CPS (Clicks Per Second) rolling window
-        self.telemetry_recent_clicks
-            .retain(|&t| (now - t).as_secs_f32() <= 1.0);
-        self.telemetry_cps = self.telemetry_recent_clicks.len() as f32;
+            // Update CPS (Clicks Per Second) rolling window
+            self.telemetry_recent_clicks
+                .retain(|&t| (now - t).as_secs_f32() <= 1.0);
+            self.telemetry_cps = self.telemetry_recent_clicks.len() as f32;
+        } else {
+            self.telemetry_last_cursor_pos = None;
+            self.telemetry_last_motion_time = None;
+        }
 
         let avail_w = ui.available_width();
         let col1_w = (avail_w * 0.55).max(340.0);
@@ -303,15 +354,17 @@ impl Em624App {
                     let is_active = pad_resp.is_pointer_button_down_on();
                     let is_hover = pad_resp.hovered();
 
-                    if pad_resp.clicked()
-                        || (ui.input(|i| i.pointer.primary_down())
-                            && is_hover
-                            && self.telemetry_click_down_instant.is_none())
+                    if self.telemetry_active
+                        && (pad_resp.clicked()
+                            || (ui.input(|i| i.pointer.primary_down())
+                                && is_hover
+                                && self.telemetry_click_down_instant.is_none()))
                     {
                         self.telemetry_click_down_instant = Some(now);
                     }
 
-                    if ui.input(|i| i.pointer.primary_released())
+                    if self.telemetry_active
+                        && ui.input(|i| i.pointer.primary_released())
                         && self.telemetry_click_down_instant.is_some()
                     {
                         if let Some(down_time) = self.telemetry_click_down_instant.take() {

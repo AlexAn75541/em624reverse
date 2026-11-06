@@ -237,8 +237,8 @@ impl Em624App {
         let pt_wheel = Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.188 * h);
         let pt_fwd = Pos2::new(img_min.x + 0.095 * w, img_min.y + 0.431 * h);
         let pt_back = Pos2::new(img_min.x + 0.108 * w, img_min.y + 0.527 * h);
-        let pt_dpi_plus = Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.352 * h);
-        let pt_dpi_minus = Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.421 * h);
+        let pt_dpi_plus = Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.385 * h);
+        let pt_dpi_minus = Pos2::new(img_min.x + 0.500 * w, img_min.y + 0.455 * h);
 
         // Callout badges positioned clearly with leader lines
         let badge_left = Pos2::new(pt_left.x - 28.0 * scale, pt_left.y - 20.0 * scale);
