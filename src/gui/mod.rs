@@ -81,6 +81,7 @@ pub struct Em624App {
     font_variants_loading: bool,
     pub io_rx: Option<std::sync::mpsc::Receiver<IoProgressMsg>>,
     pub io_progress: Option<f32>,
+    pub pending_led_sync: Option<(std::time::Instant, String)>,
     // Telemetry & Diagnostics Cockpit
     pub telemetry_samples: Vec<f32>,
     pub telemetry_last_cursor_pos: Option<egui::Pos2>,
@@ -252,6 +253,7 @@ impl Default for Em624App {
             font_variants_loading: false,
             io_rx: None,
             io_progress: None,
+            pending_led_sync: None,
             telemetry_samples: Vec::with_capacity(128),
             telemetry_last_cursor_pos: None,
             telemetry_last_motion_time: None,
@@ -625,6 +627,15 @@ impl eframe::App for Em624App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_font_verification(ctx);
         self.poll_io_worker(ctx);
+
+        if let Some((instant, desc)) = self.pending_led_sync.clone() {
+            if instant.elapsed() >= std::time::Duration::from_millis(250) && !self.is_io_busy() {
+                self.pending_led_sync = None;
+                self.dispatch_led_sync(&desc);
+            } else if !self.is_io_busy() {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            }
+        }
         while let Ok(status) = self.device_rx.try_recv() {
             match status {
                 crate::platform::DeviceStatus::Connected { info, vid, pid } => {

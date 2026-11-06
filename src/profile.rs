@@ -773,37 +773,40 @@ impl MouseProfile {
     /// - 3 (Floe Light / Flow): 0x84 (`Bodycam.bin`, `OSU.bin`, `WarThunder.bin`)
     /// - 4 (Waltz): 0x85
     /// - 5 (Four Seasons): 0x86
-    /// - 6 (Follow / Reactive): 0x87 (`DailyUse.bin`)
-    /// - 7 (LED OFF): bit 7 == 0 (`raw[0x00A5] & 0x7F`)
+    /// - 6 (LED OFF): 0x87 (`DailyUse.bin`) or bit 7 == 0
+    ///
+    /// Get LED mode (0..=6) from register 0x00A5 and 0x03F8 (`cb_MCULEDNumChange` at `0x00571424`).
+    /// Modes: 0=CPI Breathing, 1=Multicolor Breathing, 2=Rainbow/Steady, 3=Floe Light (Flow), 4=Waltz, 5=Four Seasons, 6=LED OFF.
+    /// Baseline `DailyUse.bin` has `0x00A5=0x87` and `0x03F8=0x07` representing LED OFF.
     pub fn get_led_mode(&self) -> u8 {
         if self.raw.len() != PROFILE_SIZE {
             return 0;
         }
         let mode_a5 = self.raw[0x00a5];
-        if (mode_a5 & 0x80) == 0 {
-            7 // Off
+        if (mode_a5 & 0x80) == 0 || self.raw[0x03f8] == 0x07 || (mode_a5 & 0x7f) >= 7 {
+            6 // LED OFF
         } else {
             let effect = mode_a5 & 0x7f;
-            effect.saturating_sub(1).min(6)
+            effect.saturating_sub(1).min(5)
         }
     }
 
-    /// Set LED mode (0..=7) in register 0x00A5 (`0x81..0x87` when ON, or `raw[0x00A5] & 0x7F` when OFF)
+    /// Set LED mode (0..=6) in register 0x00A5 (`0x81..0x86` for active effects, `0x87` / `0x03F8=0x07` for OFF)
     /// and sync `0x03F8` MCULED sub-mode footer (`cb_MCULEDNumChange` `0x00571424`).
     pub fn set_led_mode(&mut self, mode: u8) {
         if self.raw.len() != PROFILE_SIZE {
             return;
         }
-        let clean_mode = mode.min(7);
-        if clean_mode >= 7 {
-            let base = (self.raw[0x00a5] & 0x7f).clamp(1, 7);
-            self.raw[0x00a5] = base;
+        let clean_mode = mode.min(6);
+        if clean_mode >= 6 {
+            // LED OFF matching official Delphi app & DailyUse.bin baseline (0x00A5=0x87, 0x03F8=0x07)
+            self.raw[0x00a5] = 0x87;
+            self.raw[0x03f8] = 0x07;
+            self.raw[0x03f9] = 0x04;
         } else {
             self.raw[0x00a5] = 0x80 | (clean_mode + 1);
-            if clean_mode <= 5 {
-                self.raw[0x03f8] = clean_mode;
-                self.raw[0x03f9] = 0x04;
-            }
+            self.raw[0x03f8] = clean_mode;
+            self.raw[0x03f9] = 0x04;
         }
         self.recalculate_checksums();
     }
@@ -1203,7 +1206,7 @@ mod tests {
         assert_eq!(profile.raw[0x00a6], (4 << 3) | 1);
         assert_eq!(profile.get_active_dpi_config(), (5, 1));
 
-        // 2b. LED Mode (0x00A5: 0x81..0x87 when ON, bit 7=0 when OFF) and Speed (0x0038)
+        // 2b. LED Mode (0x00A5: 0x81..0x86 when active, 0x87 / 0x03F8=0x07 when OFF) and Speed (0x0038)
         profile.set_led_mode(0); // DPI Breathing -> 0x81
         assert_eq!(profile.get_led_mode(), 0);
         assert_eq!(profile.raw[0x00a5], 0x81);
@@ -1212,13 +1215,14 @@ mod tests {
         assert_eq!(profile.get_led_mode(), 3);
         assert_eq!(profile.raw[0x00a5], 0x84);
 
-        profile.set_led_mode(6); // Follow / Reactive -> 0x87 (DailyUse.bin default)
+        profile.set_led_mode(5); // Four Seasons -> 0x86
+        assert_eq!(profile.get_led_mode(), 5);
+        assert_eq!(profile.raw[0x00a5], 0x86);
+
+        profile.set_led_mode(6); // LED OFF -> 0x87, 0x03F8=0x07 (DailyUse.bin baseline)
         assert_eq!(profile.get_led_mode(), 6);
         assert_eq!(profile.raw[0x00a5], 0x87);
-
-        profile.set_led_mode(7); // Off -> clears bit 7 (0x07)
-        assert_eq!(profile.get_led_mode(), 7);
-        assert_eq!(profile.raw[0x00a5], 0x07);
+        assert_eq!(profile.raw[0x03f8], 0x07);
 
         profile.set_led_speed(4); // Default step 4 -> 0x64 at 0x0038
         profile.set_led_brightness(false); // Full brightness -> 0x00A7 upper nibble = 0x80

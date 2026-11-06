@@ -296,8 +296,7 @@ LED_MODES = {
     3: ("Floe Light (Flow)", 0x84, 0x03),
     4: ("Waltz", 0x85, 0x04),
     5: ("Four Seasons", 0x86, 0x05),
-    6: ("Follow / Reactive", 0x87, None),
-    7: ("LED OFF", 0x01, None),
+    6: ("LED OFF", 0x87, 0x07),
 }
 BUTTON_SLOT_MAP = {
     1: (0, "Left Click"),
@@ -484,23 +483,23 @@ def recalculate_checksums(buf: bytearray) -> None:
 
 
 def set_led_mode(buf: bytearray, mode: int) -> None:
-    clean = max(0, min(7, mode))
-    if clean >= 7:
-        base = max(1, min(7, buf[0x00A5] & 0x7F))
-        buf[0x00A5] = base
+    clean = max(0, min(6, mode))
+    if clean >= 6:
+        buf[0x00A5] = 0x87
+        buf[0x03F8] = 0x07
+        buf[0x03F9] = 0x04
     else:
         buf[0x00A5] = 0x80 | (clean + 1)
-        if clean <= 5:
-            buf[0x03F8] = clean
-            buf[0x03F9] = 0x04
+        buf[0x03F8] = clean
+        buf[0x03F9] = 0x04
     recalculate_checksums(buf)
 
 
 def get_led_mode(buf: bytes) -> int:
     m = buf[0x00A5]
-    if (m & 0x80) == 0:
-        return 7
-    return min(6, max(0, (m & 0x7F) - 1))
+    if (m & 0x80) == 0 or buf[0x03F8] == 0x07 or (m & 0x7F) >= 7:
+        return 6
+    return min(5, max(0, (m & 0x7F) - 1))
 
 
 def set_led_speed(buf: bytearray, speed: int) -> None:
@@ -666,8 +665,7 @@ def do_led_test() -> bool:
                 ("Mode 3: Floe Light / Flow (Speed 7)", 3, 7, False, (255, 255, 0)),
                 ("Mode 4: Waltz (Speed 6)", 4, 6, False, (0, 255, 255)),
                 ("Mode 5: Four Seasons (Speed 4)", 5, 4, False, (255, 128, 0)),
-                ("Mode 6: Follow / Reactive", 6, 5, False, (255, 255, 255)),
-                ("Mode 7: LED OFF", 7, 5, False, (255, 0, 0)),
+                ("Mode 6: LED OFF", 6, 5, False, (255, 0, 0)),
             ]
 
             for step_label, m_idx, spd, dim, (r, g, b) in live_sequence:

@@ -12,7 +12,7 @@ impl Em624App {
         ui.heading(Strings::tab_led(lang));
         ui.label(
             RichText::new(
-                "Visual LED Studio: Real-time lighting simulator, 8 hardware illumination modes, and stage color tuning.",
+                "Visual LED Studio: Real-time lighting simulator, 7 hardware illumination modes, and stage color tuning.",
             )
             .small()
             .color(pal.text_secondary),
@@ -90,22 +90,13 @@ impl Em624App {
                     (base[2] as f32 * bright_mult) as u8,
                 )
             }
-            6 => {
-                // Follow / Reactive
-                let wave = ((time * speed_factor * 2.0).sin().max(0.0) as f32) * bright_mult;
-                Color32::from_rgb(
-                    (255.0 * wave) as u8,
-                    (255.0 * wave) as u8,
-                    (255.0 * wave) as u8,
-                )
-            }
             _ => {
-                // LED Off
+                // LED Off (Mode 6)
                 Color32::from_rgb(35, 42, 55)
             }
         };
 
-        if cur_mode != 7 {
+        if cur_mode != 6 {
             ui.ctx().request_repaint();
         }
 
@@ -257,7 +248,7 @@ impl Em624App {
                 });
             });
 
-            // Right Column: 8 Mode Cards, Speed Slider, Brightness Pills, Manual Sync
+            // Right Column: 7 Mode Cards, Speed Slider, Brightness Pills, Manual Sync
             ui.vertical(|ui| {
                 ui.set_width(col2_w);
 
@@ -265,15 +256,14 @@ impl Em624App {
                     ui.heading("Hardware Illumination Modes (Register 0x00A5 / 0x03F8)");
                     ui.add_space(4.0);
 
-                    let modes: [(u8, &str, &str); 8] = [
+                    let modes: [(u8, &str, &str); 7] = [
                         (0, "CPI Breathing", "Breathing pulse matching active DPI stage color"),
                         (1, "Multicolor Breathing", "Continuous breathing with automatic color shift"),
                         (2, "Rainbow / Steady", "Vibrant fixed multi-spectrum illumination"),
                         (3, "Floe Light (Flow)", "Dynamic streaming light wave across chassis rim"),
                         (4, "Waltz", "Rhythmic dual-step color dancing wave"),
                         (5, "Four Seasons", "Continuous seasonal transition (Green/Gold/Red/Blue)"),
-                        (6, "Follow / Reactive", "Illumination reacts dynamically to mouse clicks"),
-                        (7, "LED OFF", "Disable all lighting (ultra stealth mode)"),
+                        (6, "LED OFF", "Disable all lighting (ultra stealth mode)"),
                     ];
 
                     let mut selected_mode = None;
@@ -439,7 +429,6 @@ fn mode_name(mode: u8) -> &'static str {
         3 => "Floe Light",
         4 => "Waltz",
         5 => "Four Seasons",
-        6 => "Follow / Reactive",
         _ => "LED OFF",
     }
 }

@@ -12,6 +12,8 @@ pub enum IoProgressMsg {
     Progress { fraction: f32, message: String },
     ReadDone(Result<Vec<u8>, String>),
     FlashDone(Result<(), String>),
+    LedSyncDone(Result<(), String>),
+    ModeSwitchDone(Result<(), String>),
 }
 
 impl Em624App {
@@ -66,6 +68,35 @@ impl Em624App {
                             }
                             Err(e) => {
                                 self.status_message = format!("Flash failed: {}", e);
+                            }
+                        }
+                        ctx.request_repaint();
+                        break;
+                    }
+                    IoProgressMsg::LedSyncDone(res) => {
+                        self.io_progress = None;
+                        finished = true;
+                        match res {
+                            Ok(()) => {
+                                self.device_connected = true;
+                                self.status_message = "LED lighting synced to mouse.".to_string();
+                            }
+                            Err(e) => {
+                                self.status_message = format!("LED sync failed: {}", e);
+                            }
+                        }
+                        ctx.request_repaint();
+                        break;
+                    }
+                    IoProgressMsg::ModeSwitchDone(res) => {
+                        self.io_progress = None;
+                        finished = true;
+                        match res {
+                            Ok(()) => {
+                                self.device_connected = true;
+                            }
+                            Err(e) => {
+                                self.status_message = format!("Mode register sync failed: {}", e);
                             }
                         }
                         ctx.request_repaint();
@@ -312,21 +343,65 @@ impl Em624App {
             mode_name, mode_byte
         ));
 
-        // Non-blocking background thread: deliver mode register to mouse without freezing GUI
+        // Serialized non-blocking background thread: deliver mode register to mouse without freezing GUI
+        if self.is_io_busy() {
+            return;
+        }
+
+        let (tx, rx) = mpsc::channel();
+        self.io_rx = Some(rx);
+
         let payload = self.profile.raw[0x00a4..0x00c0].to_vec();
-        std::thread::spawn(move || {
-            if let Ok(api) = HidApi::new() {
-                if let Ok(dev) = Em624Device::open_auto(&api) {
-                    let _ = dev.write_registers_3b(0x00a4, &payload);
+        thread::spawn(move || {
+            let api = match HidApi::new() {
+                Ok(a) => a,
+                Err(e) => {
+                    let _ = tx.send(IoProgressMsg::ModeSwitchDone(Err(format!(
+                        "HID API error: {}",
+                        e
+                    ))));
+                    return;
+                }
+            };
+
+            let dev = match Em624Device::open_auto(&api) {
+                Ok(d) => d,
+                Err(e) => {
+                    let _ = tx.send(IoProgressMsg::ModeSwitchDone(Err(format!(
+                        "Mouse not connected: {}",
+                        e
+                    ))));
+                    return;
+                }
+            };
+
+            match dev.write_registers_3b(0x00a4, &payload) {
+                Ok(()) => {
+                    let _ = tx.send(IoProgressMsg::ModeSwitchDone(Ok(())));
+                }
+                Err(e) => {
+                    let _ = tx.send(IoProgressMsg::ModeSwitchDone(Err(e.to_string())));
                 }
             }
         });
     }
 
+    /// Queue a debounced LED sync request (debounced 250ms in `update` to eliminate UI spam concurrency)
     pub fn sync_led_and_forward(&mut self, desc: &str) {
         self.profile.recalculate_checksums();
         self.save_to_cached_profile();
-        self.status_message = format!("LED Lighting synced: {}", desc);
+        self.pending_led_sync = Some((std::time::Instant::now(), desc.to_string()));
+    }
+
+    /// Dispatches serialized LED sync through the background IO channel
+    pub fn dispatch_led_sync(&mut self, desc: &str) {
+        if self.is_io_busy() {
+            return;
+        }
+
+        self.profile.recalculate_checksums();
+        self.save_to_cached_profile();
+        self.status_message = format!("Syncing LED lighting: {}...", desc);
         self.log_debug(&format!(
             "[LED_SYNC] {} | 0x00A5=0x{:02X} 0x0038=0x{:02X} 0x00A7=0x{:02X} 0x03F8=0x{:02X} 0x03FA=0x{:02X}",
             desc,
@@ -337,11 +412,39 @@ impl Em624App {
             self.profile.raw[0x03fa]
         ));
 
+        let (tx, rx) = mpsc::channel();
+        self.io_rx = Some(rx);
+
         let raw_copy = self.profile.raw.clone();
-        std::thread::spawn(move || {
-            if let Ok(api) = HidApi::new() {
-                if let Ok(dev) = Em624Device::open_auto(&api) {
-                    let _ = dev.sync_led_lighting(&raw_copy);
+        thread::spawn(move || {
+            let api = match HidApi::new() {
+                Ok(a) => a,
+                Err(e) => {
+                    let _ = tx.send(IoProgressMsg::LedSyncDone(Err(format!(
+                        "HID API error: {}",
+                        e
+                    ))));
+                    return;
+                }
+            };
+
+            let dev = match Em624Device::open_auto(&api) {
+                Ok(d) => d,
+                Err(e) => {
+                    let _ = tx.send(IoProgressMsg::LedSyncDone(Err(format!(
+                        "Mouse not connected: {}",
+                        e
+                    ))));
+                    return;
+                }
+            };
+
+            match dev.sync_led_lighting(&raw_copy) {
+                Ok(()) => {
+                    let _ = tx.send(IoProgressMsg::LedSyncDone(Ok(())));
+                }
+                Err(e) => {
+                    let _ = tx.send(IoProgressMsg::LedSyncDone(Err(e.to_string())));
                 }
             }
         });
