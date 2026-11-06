@@ -721,6 +721,15 @@ impl Em624App {
             ui.label(Strings::about_desc(lang));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Version:").strong());
+                ui.label(
+                    egui::RichText::new(format!("v{}", env!("CARGO_PKG_VERSION")))
+                        .color(Color32::from_rgb(16, 185, 129))
+                        .strong(),
+                );
+            });
+            ui.add_space(2.0);
+            ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(Strings::author(lang)).strong());
                 ui.hyperlink_to("AlexAn75541", "https://github.com/AlexAn75541");
             });

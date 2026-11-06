@@ -144,10 +144,14 @@ fn main() -> Result<()> {
                 [700.0, 500.0]
             };
 
+            let window_title = format!(
+                "E-DRA EM624 Gaming Mouse Configurator v{}",
+                env!("CARGO_PKG_VERSION")
+            );
             let mut viewport = eframe::egui::ViewportBuilder::default()
                 .with_inner_size([880.0, 640.0])
                 .with_min_inner_size(min_size)
-                .with_title("E-DRA EM624 Gaming Mouse Configurator");
+                .with_title(&window_title);
 
             if let Some(ic) = icon_data {
                 viewport = viewport.with_icon(ic);
