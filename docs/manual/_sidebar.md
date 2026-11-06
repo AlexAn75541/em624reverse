@@ -9,7 +9,7 @@
   * [Troubleshooting & Recovery](troubleshooting.md)
   * [Frequently Asked Questions](faq.md)
 
-* 🤓 **Nerdy / Developer Zone**
+* **Developer & Hardware Specifications**
   * [`em624-driver` Internals & Memory](driver-internals.md)
   * [Silicon & Hardware Architecture](hardware.md)
   * [USB HID Protocol & Packets](protocol.md)

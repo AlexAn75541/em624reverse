@@ -12,7 +12,7 @@ This project provides a **100% native Rust open-source driver and modern GUI** r
 |---|---|---|
 | **USB Vendor ID (VID)** | `0x1BCF` (Sunplus Innovation Technology Inc.) | Verified & Auto-detected |
 | **USB Product ID (PID)** | `0x08B8` (EM624 Gaming Mouse) | Verified & Auto-detected |
-| **Optical Sensor** | SunplusIT SPCP6662 (6662IC) Optical Gaming Sensor | Calibrated 14-step DPI Table |
+| **Optical Sensor** | SunplusIT SPCP6662 (6662IC) Optical Gaming Sensor | Calibrated 15-step DPI Table (200 to 12,000 DPI) |
 | **Microcontroller (MCU)** | SunplusIT SPCP6651B High-Speed USB MCU | 2048-Byte EEPROM Read/Write |
 | **Physical Switches** | Huano Blue Shell Pink Dot (50M rated clicks) | 7 Buttons + 1 Wheel Encoder |
 | **Memory Budget** | < 10 MB Steady-State Working Set | Verified Heap Compaction & Trimming |
