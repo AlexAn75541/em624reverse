@@ -1038,9 +1038,38 @@ impl MouseProfile {
 
     #[allow(dead_code)]
     pub fn save_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
-        let mut file = File::create(path)?;
+        let path_ref = path.as_ref();
+        let path_str = path_ref.to_string_lossy().replace('\\', "/");
+        if (path_str.contains("exampleProfiles/") || path_str.contains("exampleprofiles/"))
+            && path_str.ends_with(".bin")
+        {
+            anyhow::bail!(
+                "Immutability Violation: Authentic reference files in exampleProfiles/*.bin are strictly read-only"
+            );
+        }
+        if let Ok(canon) = path_ref.canonicalize() {
+            let canon_str = canon.to_string_lossy().replace('\\', "/");
+            if (canon_str.contains("exampleProfiles/") || canon_str.contains("exampleprofiles/"))
+                && canon_str.ends_with(".bin")
+            {
+                anyhow::bail!(
+                    "Immutability Violation: Authentic reference files in exampleProfiles/*.bin are strictly read-only"
+                );
+            }
+        }
+
+        let mut file = File::create(path_ref)?;
         file.write_all(&self.raw)?;
         Ok(())
+    }
+
+    /// Export profile as a 2048-byte binary file compatible with the original vendor utility.
+    /// Strictly protects reference profiles in `exampleProfiles/*.bin` from being overwritten.
+    pub fn export_bin<P: AsRef<Path>>(&mut self, path: P) -> Result<()> {
+        // ponytail: safe normalization + checksum recalculation before binary export
+        self.apply_safe_profile();
+        self.recalculate_checksums();
+        self.save_file(path)
     }
 }
 
@@ -1302,5 +1331,57 @@ mod tests {
             MouseProfile::calculate_checksum(&profile.raw[0x00f1..0x0121]),
             profile.raw[0x0121]
         );
+    }
+
+    #[test]
+    fn test_export_bin_compatibility_and_immutability() {
+        let baseline = include_bytes!("../exampleProfiles/DailyUse.bin");
+        let mut profile =
+            MouseProfile::from_bytes(baseline).expect("Failed to load DailyUse baseline");
+
+        // Test immutability guard: MUST reject overwriting authentic exampleProfiles/*.bin
+        let immutability_err = profile.export_bin("exampleProfiles/DailyUse.bin");
+        assert!(
+            immutability_err.is_err(),
+            "Immutability guard must prevent overwriting exampleProfiles/*.bin"
+        );
+
+        // Test valid export to temp path
+        let temp_dir = std::env::temp_dir();
+        let export_path = temp_dir.join("em624_test_compat_export.bin");
+        let res = profile.export_bin(&export_path);
+        assert!(res.is_ok(), "export_bin should succeed for safe paths");
+
+        let exported_data = std::fs::read(&export_path).expect("Failed to read exported .bin");
+        assert_eq!(
+            exported_data.len(),
+            PROFILE_SIZE,
+            "Exported .bin must be exactly 2048 bytes"
+        );
+        assert_eq!(
+            &exported_data[0..4],
+            &[0x1b, 0xcf, 0x08, 0xb8],
+            "Magic header must match 1BCF:08B8"
+        );
+        assert_eq!(
+            exported_data[0x0006], 0x7f,
+            "Optical sensor orientation must be 180° PCB normal (0x7F)"
+        );
+
+        // Verify all 5 hardware checksums on exported binary
+        let c0 = MouseProfile::calculate_checksum(&exported_data[0x0000..0x00a3]);
+        let c1 = MouseProfile::calculate_checksum(&exported_data[0x00a4..0x00bf]);
+        let c2 = MouseProfile::calculate_checksum(&exported_data[0x00c0..0x00f0]);
+        let c3 = MouseProfile::calculate_checksum(&exported_data[0x00f1..0x0121]);
+        let c4 = MouseProfile::calculate_checksum(&exported_data[0x03f8..0x03ff]);
+
+        assert_eq!(c0, exported_data[0x00a3], "Sector 0 checksum mismatch");
+        assert_eq!(c1, exported_data[0x00bf], "Sector 1 checksum mismatch");
+        assert_eq!(c2, exported_data[0x00f0], "Sector 2 checksum mismatch");
+        assert_eq!(c3, exported_data[0x0121], "Sector 3 checksum mismatch");
+        assert_eq!(c4, exported_data[0x03ff], "Sector 4 checksum mismatch");
+
+        // Clean up temp file
+        let _ = std::fs::remove_file(&export_path);
     }
 }

@@ -110,6 +110,15 @@ enum Commands {
         #[arg(long)]
         pid: Option<u16>,
     },
+    /// Export a profile (.em624 or .bin) to a 2048-byte .bin file compatible with the original official utility
+    #[command(alias = "export-bin")]
+    Export {
+        /// Path to input profile (.em624 or .bin)
+        input: PathBuf,
+        /// Path to output .bin profile file
+        #[arg(short, long)]
+        output: PathBuf,
+    },
 }
 
 fn main() -> Result<()> {
@@ -550,6 +559,15 @@ fn main() -> Result<()> {
             );
             println!(
                 "X and Y axes are now tracked normally (Up=Up, Down=Down, Left=Left, Right=Right)."
+            );
+        }
+        Some(Commands::Export { input, output }) => {
+            println!("Exporting profile to stock-compatible .bin format...");
+            let mut profile = MouseProfile::load_file(&input)?;
+            profile.export_bin(&output)?;
+            println!(
+                "SUCCESS: Exported 2048-byte stock-compatible profile to: {}",
+                output.display()
             );
         }
     }

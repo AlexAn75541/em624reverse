@@ -248,6 +248,28 @@ impl Em624App {
                     let _ = fs::create_dir_all(&cache_dir);
                     let _ = crate::platform::open_folder_in_file_manager(&cache_dir);
                 }
+
+                if ui
+                    .button(icon_label_spaced(
+                        Icons::CODE,
+                        Strings::btn_export_bin(lang),
+                        14.0,
+                    ))
+                    .on_hover_text(Strings::btn_export_bin_tooltip(lang))
+                    .clicked()
+                {
+                    if let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Stock Compatible Profile (*.bin)", &["bin"])
+                        .set_file_name("em624_profile.bin")
+                        .save_file()
+                    {
+                        self.sync_settings_to_profile();
+                        if let Ok(()) = self.profile.export_bin(&path) {
+                            self.status_message =
+                                format!("Exported .bin profile to: {}", path.display());
+                        }
+                    }
+                }
             });
         });
 

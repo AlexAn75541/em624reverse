@@ -85,18 +85,65 @@ impl Em624App {
                     {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("Safe EM624 Profile (*.em624)", &["em624"])
+                            .add_filter("Stock Compatible Profile (*.bin)", &["bin"])
                             .set_file_name("custom_profile.em624")
                             .save_file()
                         {
                             self.sync_settings_to_profile();
-                            if let Ok(()) = self.profile.save_file(&path) {
-                                self.file_path = Some(path.clone());
-                                self.status_message =
-                                    format!("Saved profile to: {}", path.display());
-                                self.log_debug(&format!(
-                                    "[SAVE] Saved profile to: {}",
-                                    path.display()
-                                ));
+                            let res = if path.extension().and_then(|s| s.to_str()) == Some("bin") {
+                                self.profile.export_bin(&path)
+                            } else {
+                                self.profile.save_file(&path)
+                            };
+                            match res {
+                                Ok(()) => {
+                                    self.file_path = Some(path.clone());
+                                    self.status_message =
+                                        format!("Saved profile to: {}", path.display());
+                                    self.log_debug(&format!(
+                                        "[SAVE] Saved profile to: {}",
+                                        path.display()
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.status_message = format!("Save failed: {}", e);
+                                    self.log_debug(&format!("[SAVE] Error: {}", e));
+                                }
+                            }
+                        }
+                    }
+
+                    // Export .bin button (Compatible with original vendor utility)
+                    if ui
+                        .add_enabled(
+                            !busy,
+                            egui::Button::new(icon_label(
+                                Icons::CODE,
+                                Strings::btn_export_bin(self.config.language),
+                            )),
+                        )
+                        .on_hover_text(Strings::btn_export_bin_tooltip(self.config.language))
+                        .clicked()
+                    {
+                        if let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Stock Compatible Profile (*.bin)", &["bin"])
+                            .set_file_name("custom_profile.bin")
+                            .save_file()
+                        {
+                            self.sync_settings_to_profile();
+                            match self.profile.export_bin(&path) {
+                                Ok(()) => {
+                                    self.status_message =
+                                        format!("Exported .bin profile to: {}", path.display());
+                                    self.log_debug(&format!(
+                                        "[EXPORT] Exported .bin profile to: {}",
+                                        path.display()
+                                    ));
+                                }
+                                Err(e) => {
+                                    self.status_message = format!("Export failed: {}", e);
+                                    self.log_debug(&format!("[EXPORT] Error: {}", e));
+                                }
                             }
                         }
                     }

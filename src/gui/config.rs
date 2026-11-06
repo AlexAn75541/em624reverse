@@ -17,8 +17,8 @@ pub enum Tab {
 
 #[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub enum ThemeMode {
-    #[default]
     PitchBlackOled,
+    #[default]
     Windows11Dark,
     LightWhite,
 }
@@ -120,7 +120,7 @@ impl Default for AppConfig {
             ui_scale: 1.25,
             debug_mode: false,
             last_profile: None,
-            theme: ThemeMode::PitchBlackOled,
+            theme: ThemeMode::Windows11Dark,
             language: Language::English,
             custom_data_dir: None,
             allow_stage_6: false,

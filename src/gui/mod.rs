@@ -255,7 +255,8 @@ impl Default for Em624App {
             io_rx: None,
             io_progress: None,
             pending_led_sync: None,
-            telemetry_active: true,
+            // ponytail: telemetry stopped by default to preserve idle CPU/RAM cycles
+            telemetry_active: false,
             telemetry_samples: Vec::with_capacity(128),
             telemetry_last_cursor_pos: None,
             telemetry_last_motion_time: None,

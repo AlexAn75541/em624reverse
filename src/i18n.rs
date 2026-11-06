@@ -159,6 +159,24 @@ impl Strings {
         }
     }
 
+    pub fn btn_export_bin(lang: Language) -> &'static str {
+        match lang {
+            Language::English => "Export .bin",
+            Language::Vietnamese => "Xuất .bin",
+        }
+    }
+
+    pub fn btn_export_bin_tooltip(lang: Language) -> &'static str {
+        match lang {
+            Language::English => {
+                "Export profile as a 2048-byte .bin file fully compatible with the stock EM624 software"
+            }
+            Language::Vietnamese => {
+                "Xuất hồ sơ dưới dạng tệp .bin 2048 byte tương thích 100% với phần mềm gốc EM624"
+            }
+        }
+    }
+
     pub fn game_mode_title(lang: Language) -> &'static str {
         match lang {
             Language::English => "Gaming Mode Bindings",
