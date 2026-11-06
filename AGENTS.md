@@ -1,5 +1,13 @@
 # AGENTS.md — EM624 Mouse Reverse Engineering & Driver Architecture
 
+> **HARD HARDWARE MANDATE**:
+> The target hardware of this repository is strictly the **E-DRA EM624 wired gaming mouse** (`VID: 0x1BCF`, `PID: 0x08B8`, Sunplus SPCP6662 optical sensor + SPCP6651B MCU). Every hardware capability, register, USB HID report, sensor parameter, macro engine instruction, lighting mode, and companion feature of the original `EM624 Mouse.exe` MUST be properly studied, reverse-engineered, and restored with zero compromises or second thoughts.
+>
+> **SNIFFING & TRAFFIC CAPTURE PROTOCOL**:
+> Executing shell commands to monitor or capture traffic is part of your toolset. Once you run the capture script or tshark/tcpdump command, immediately terminate your current execution turn or conversation loop. Your final message MUST strictly end with the following exact text structure:
+>
+> `"Proceed to do [insert actions here] in the physical human side to complete the sniffing progress."`
+
 ## 1. Project Overview & Hardware Profile
 
 - **Device Name**: E-DRA EM624 Gaming Mouse

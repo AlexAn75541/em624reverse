@@ -325,6 +325,30 @@ impl Em624App {
         });
     }
 
+    pub fn sync_led_and_forward(&mut self, desc: &str) {
+        self.profile.recalculate_checksums();
+        self.save_to_cached_profile();
+        self.status_message = format!("LED Lighting synced: {}", desc);
+        self.log_debug(&format!(
+            "[LED_SYNC] {} | 0x00A5=0x{:02X} 0x0038=0x{:02X} 0x00A7=0x{:02X} 0x03F8=0x{:02X} 0x03FA=0x{:02X}",
+            desc,
+            self.profile.raw[0x00a5],
+            self.profile.raw[0x0038],
+            self.profile.raw[0x00a7],
+            self.profile.raw[0x03f8],
+            self.profile.raw[0x03fa]
+        ));
+
+        let raw_copy = self.profile.raw.clone();
+        std::thread::spawn(move || {
+            if let Ok(api) = HidApi::new() {
+                if let Ok(dev) = Em624Device::open_auto(&api) {
+                    let _ = dev.sync_led_lighting(&raw_copy);
+                }
+            }
+        });
+    }
+
     pub fn repair_sensor_orientation_now(&mut self) {
         self.profile.raw[0x0006] = 0x7f;
         self.profile.apply_safe_profile();

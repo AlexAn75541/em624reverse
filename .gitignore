@@ -48,3 +48,5 @@ desktop.ini
 *.swo
 *~
 live_dump.bin
+*.log
+logs/

@@ -346,6 +346,59 @@ impl Em624Device {
         self.write_profile_with_progress(data, |_, _| {})
     }
 
+    /// Fast live LED lighting sync (~250ms) matching `RGBImgMode_OnClick` (`0x00589784`),
+    /// `RGBLight_OnClick` (`0x00589390`), and `cb_MCULEDNumChange` (`0x00571424`):
+    /// 1. Writes LED Speed (`0x0038`) + 7x 3-byte RGB Colors (`0x0039..0x004D`) + Sector 0 Checksum (`0x00A3`) via `0x40 0x05`.
+    /// 2. Writes Sector 1 (`0x00A4..0x00BF`: Mode `0x00A4`, LED Mode `0x00A5`, Stage `0x00A6`, Brightness `0x00A7`, Checksum `0x00BF`) via `0x40 0x05`.
+    /// 3. Writes Footer (`0x03F0..0x03FF`) and MCULED sub-controller commands (`0x40 0x01 0x07`).
+    pub fn sync_led_lighting(&self, data: &[u8]) -> Result<()> {
+        if data.len() != PROFILE_SIZE {
+            anyhow::bail!(
+                "Invalid profile size: expected {} bytes, got {}",
+                PROFILE_SIZE,
+                data.len()
+            );
+        }
+
+        // 1. Write 0x0036..0x004E (24 bytes = 8 chunks of 3B: covers 0x0038 speed + 0x0039..0x004D RGB colors)
+        self.write_registers_3b(0x0036, &data[0x0036..0x004e])
+            .context("Failed to write LED speed & RGB color registers (0x0036..0x004D)")?;
+
+        // 2. Write Sector 0 Checksum at 0x00A3 (1 byte via 0x40 0x05 matching 0x005718b0)
+        self.write_registers_3b(0x00a3, &data[0x00a3..0x00a4])
+            .context("Failed to write Sector 0 checksum (0x00A3)")?;
+
+        // 3. Write Sector 1 (0x00A4..0x00BF: LED mode 0x00A5, stage 0x00A6, brightness 0x00A7, checksum 0x00BF)
+        self.write_registers_3b(0x00a4, &data[0x00a4..0x00c0])
+            .context("Failed to write Sector 1 LED registers (0x00A4..0x00BF)")?;
+
+        // 4. Write Footer (0x03F0..0x03FF) and MCULED sub-controller commands (0x40 0x01 0x07)
+        self.write_chunked_region(0x03f0, &data[0x03f0..0x03fa])
+            .context("Failed to write LED footer 0x03F0..0x03F9")?;
+        self.write_chunked_region(0x03fa, &data[0x03fa..0x0400])
+            .context("Failed to write LED footer 0x03FA..0x03FF")?;
+
+        let sub_mode = data[0x03f8];
+        if sub_mode <= 5 {
+            let mcu_cmd = [REPORT_ID_CMD, 0x01, 0x07, sub_mode, 0x00, 0x00, 0x00, 0x00];
+            let _ = self.send_feature_report(&mcu_cmd);
+            sleep(Duration::from_millis(12));
+            let step_cmd = [
+                REPORT_ID_CMD,
+                0x01,
+                0x07,
+                data[0x03fa],
+                0x00,
+                0x00,
+                0x00,
+                0x00,
+            ];
+            let _ = self.send_feature_report(&step_cmd);
+        }
+
+        Ok(())
+    }
+
     /// Read active 2048-byte configuration profile with a progress callback `(fraction_0_to_1, stage_msg)`.
     pub fn read_profile_with_progress<F>(&self, mut on_progress: F) -> Result<Vec<u8>>
     where

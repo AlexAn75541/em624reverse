@@ -23,11 +23,12 @@ impl Em624App {
             let mut cur_speed = self.profile.get_led_speed();
             ui.horizontal(|ui| {
                 ui.label("Slow (1)");
-                if ui
-                    .add(egui::Slider::new(&mut cur_speed, 1..=8).show_value(true))
-                    .changed()
-                {
+                let resp = ui.add(egui::Slider::new(&mut cur_speed, 1..=8).show_value(true));
+                if resp.changed() {
                     self.profile.set_led_speed(cur_speed);
+                }
+                if resp.drag_stopped() || (resp.changed() && !resp.dragged()) {
+                    self.sync_led_and_forward(&format!("Speed Step {}", cur_speed));
                 }
                 ui.label("Fast (8)");
             });
@@ -78,6 +79,7 @@ impl Em624App {
             });
             if mode_changed {
                 self.profile.set_led_mode(cur_mode);
+                self.sync_led_and_forward(&format!("Mode {}", cur_mode));
             }
         });
 
@@ -92,14 +94,27 @@ impl Em624App {
                     .clicked()
                 {
                     self.profile.set_led_brightness(false);
+                    self.sync_led_and_forward("Brightness 100% (0x84)");
                 }
                 if ui
                     .radio_value(&mut bright_sel, 1, "Half Brightness (50%)")
                     .clicked()
                 {
                     self.profile.set_led_brightness(true);
+                    self.sync_led_and_forward("Brightness 50% (0x44)");
                 }
             });
         });
+
+        ui.add_space(12.0);
+        if ui
+            .button("Sync LED Lighting to Hardware Now")
+            .on_hover_text(
+                "Immediately sends LED speed (0x0038), RGB stage colors (0x0039..0x004D), LED mode (0x00A5), brightness (0x00A7), and MCULED sub-controller commands (0x40 0x01 0x07) to the mouse.",
+            )
+            .clicked()
+        {
+            self.sync_led_and_forward("Manual Sync");
+        }
     }
 }
