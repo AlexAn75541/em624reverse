@@ -131,10 +131,11 @@ impl Em624App {
                     );
 
                     let stage_w = (spec_rect.width() - 8.0) / (num_stages as f32).max(1.0);
-                    for s in 0..num_stages as usize {
-                        let step_idx = self.profile.dpi_stages[s].level_index.min(14) as usize;
+                    let stages = &self.profile.dpi_stages[..num_stages as usize];
+                    for (s, stage) in stages.iter().enumerate() {
+                        let step_idx = stage.level_index.min(14) as usize;
                         let dpi_val = OFFICIAL_DPI_STEPS[step_idx];
-                        let c = &self.profile.dpi_stages[s].color;
+                        let c = &stage.color;
                         let bar_color = Color32::from_rgb(c.r, c.g, c.b);
                         let is_cur = s == current_stage_idx as usize;
 

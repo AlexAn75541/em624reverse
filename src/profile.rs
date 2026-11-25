@@ -535,10 +535,10 @@ impl MouseProfile {
         if self.raw.len() != PROFILE_SIZE {
             return;
         }
-        for byte_idx in 0x2c..=0x2e {
-            let low = (self.raw[byte_idx] & 0x0f).min(14);
-            let high = ((self.raw[byte_idx] >> 4) & 0x0f).min(14);
-            self.raw[byte_idx] = low | (high << 4);
+        for byte in &mut self.raw[0x2c..=0x2e] {
+            let low = (*byte & 0x0f).min(14);
+            let high = ((*byte >> 4) & 0x0f).min(14);
+            *byte = low | (high << 4);
         }
     }
 
