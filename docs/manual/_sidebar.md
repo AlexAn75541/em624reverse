@@ -1,4 +1,3 @@
-* [**Home Frontpage**](../index.html)
 * [**Documentation Overview**](README.md)
 
 * **User Guides & How-Tos**
