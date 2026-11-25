@@ -50,3 +50,7 @@ desktop.ini
 live_dump.bin
 *.log
 logs/
+# Local agent state and generated code indexes
+/.pi/
+/graphify-out/
+/.cocoindex_code/
